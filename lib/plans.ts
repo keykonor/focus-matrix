@@ -7,6 +7,9 @@ export const contentSchema = z.object({
 export type PlanContent = z.infer<typeof contentSchema>;
 export const responseSchema = z.object({content:contentSchema,updatedAt:z.number()});
 export const uploadSchema = z.object({viewToken:z.string().regex(/^[a-f0-9]{64}$/),content:contentSchema}).strict();
+export const tokenSchema=z.string().regex(/^[a-f0-9]{64}$/);
+export const sharingSchema=z.object({viewToken:tokenSchema,editingEnabled:z.boolean()}).strict();
+export const syncRequestSchema=z.object({base:contentSchema,content:contentSchema,clientId:z.string().regex(/^[a-zA-Z0-9-]{8,80}$/),requestId:z.string().regex(/^[a-zA-Z0-9-]{8,80}$/),actor:z.string().trim().min(1).max(40)}).strict();
 export async function hashToken(token:string) {
   const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(token));
   return Array.from(new Uint8Array(digest),byte=>byte.toString(16).padStart(2,'0')).join('');
