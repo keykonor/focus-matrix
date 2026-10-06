@@ -1,7 +1,7 @@
 import type {SyncContent,SyncSnapshot} from '../../lib/syncModel';
 export interface MobileAuth {token:string;clientId:string;mode:'mobile'|'share';label:string;}
 export interface MobileRequest {base:SyncContent;content:SyncContent;clientId:string;requestId:string;actor:string;}
-export interface MobileState extends SyncSnapshot {base:SyncContent;auth:MobileAuth;pending:MobileRequest|null;editable?:boolean;}
+export interface MobileState extends SyncSnapshot {base:SyncContent;auth:MobileAuth;pending:MobileRequest|null;editable?:boolean;disconnected?:boolean;disconnectPending?:boolean;}
 export interface MobileHistory {id:string;key:string;at:number;content:SyncContent;reason:string;}
 let databasePromise:Promise<IDBDatabase>|null=null;
 function database(){return databasePromise??=new Promise<IDBDatabase>((resolve,reject)=>{const request=indexedDB.open('focus-matrix-mobile',1);request.onupgradeneeded=()=>{const db=request.result;db.createObjectStore('states');const history=db.createObjectStore('history',{keyPath:'id'});history.createIndex('key','key');};request.onsuccess=()=>resolve(request.result);request.onerror=()=>{databasePromise=null;reject(Error('手机本地存储无法打开'));};});}

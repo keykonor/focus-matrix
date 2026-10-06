@@ -13,6 +13,10 @@ export function useMobileSync({mode,token}:Options){
  const sync=useCallback(async()=>{if(working.current||!current.current||document.hidden)return;working.current=true;setBusy(true);
   try{await queue.current;let local=current.current;
    if(!local)return;
+   if(local.disconnected){
+    if(local.disconnectPending){const response=await cloudRequest('/api/devices/self',{method:'DELETE',headers:{Authorization:`Bearer ${local.auth.token}`}});if(!response.ok)throw Error('取消连接已在本机保存，联网后继续确认');await save({...current.current!,disconnectPending:false},'确认取消连接');}
+    setMessage('已取消连接，手机内容保留；重新配对后可以继续同步');return;
+   }
    if(local.auth.mode==='share'){
     const response=await cloudRequest('/api/plan',{headers:{Authorization:`Bearer ${local.auth.token}`},cache:'no-store'});if(!response.ok)throw Error('分享链接已失效或已关闭，手机里的内容仍保留');const view=await response.json() as SyncSnapshot & {editable:boolean};
     setEditable(view.editable);
@@ -26,13 +30,13 @@ export function useMobileSync({mode,token}:Options){
     if(!local.pending){local={...local,pending:request};await save(local,'准备同步');}
     response=await cloudRequest('/api/sync',{method:'POST',headers:{Authorization:`Bearer ${local.auth.token}`,'Content-Type':'application/json'},body:JSON.stringify(request)});
    }else response=await cloudRequest('/api/sync',{headers:{Authorization:`Bearer ${local.auth.token}`},cache:'no-store'});
-   if(!response.ok)throw Error(response.status===401?'编辑权限已撤销，本地内容仍保留':'云端暂不可用，本地已保存，稍后自动重试');
+   if(!response.ok){if(response.status===401&&local.auth.mode==='mobile')await save({...current.current!,disconnected:true,disconnectPending:false},'电脑取消手机绑定');throw Error(response.status===401?'连接或编辑权限已撤销，本地内容仍保留':'云端暂不可用，本地已保存，稍后自动重试');}
    const body=await response.json() as {snapshot:unknown;conflicts?:number},snapshot=parseSnapshot(body.snapshot),latest=current.current!;
    const merged=mergeContent(request?.content??base,latest.content,snapshot.content);
    const next={...latest,...snapshot,content:merged.content,base:snapshot.content,pending:null,editable:true};
    if(!same(next,latest))await save(next,'云端同步');
    setMessage(body.conflicts||merged.conflictIds.length?'同时修改已保留两份内容，请查看修改记录':same(merged.content,snapshot.content)?'已与电脑和云端同步':'本地已保存，等待下一次同步');
-  }catch(error){setMessage(navigator.onLine?String(error):'离线：内容已保存到手机，联网后自动同步');}
+  }catch(error){setMessage(current.current?.disconnected?'已取消连接，手机内容保留；云端确认将在联网后重试':navigator.onLine?String(error):'离线：绑定仍保留，内容已保存到手机，联网后自动同步');}
   finally{working.current=false;if(active.current)setBusy(false);}
  },[save]);
  useEffect(()=>{active.current=true;let disposed=false;void readMobileState(key).then(async saved=>{if(disposed)return;
@@ -41,10 +45,11 @@ export function useMobileSync({mode,token}:Options){
   else setMessage('请在电脑的“分享”中生成手机配对链接');
  }).catch(error=>{if(!disposed)setMessage(String(error));});return()=>{disposed=true;active.current=false;clearTimeout(schedule.current);};},[key,mode,token,save]);
  useEffect(()=>{const run=()=>{if(current.current&&!document.hidden)void sync();};const timer=setInterval(run,10000),initial=setTimeout(run,1000);window.addEventListener('online',run);document.addEventListener('visibilitychange',run);return()=>{clearInterval(timer);clearTimeout(initial);window.removeEventListener('online',run);document.removeEventListener('visibilitychange',run);};},[sync]);
- const change=useCallback((content:SyncContent,reason='手机编辑')=>{const previous=current.current;if(!previous)return;void save({...previous,content},reason);setMessage('本地已保存，正在等待同步');clearTimeout(schedule.current);schedule.current=setTimeout(()=>void sync(),800);},[save,sync]);
- const claim=useCallback(async(pairCode:string,label:string)=>{setBusy(true);try{const response=await cloudRequest('/api/devices/claim',{method:'POST',headers:{Authorization:`Bearer ${pairCode}`,'Content-Type':'application/json'},body:JSON.stringify({label})});const body=await connectionResponse(response);const snapshot=parseSnapshot(body.snapshot);await save({...snapshot,base:snapshot.content,auth:{token:body.deviceToken,clientId:crypto.randomUUID(),mode:'mobile',label},pending:null},'手机配对');setMessage('手机已配对，内容自动同步');return true;}catch(error){setMessage(String(error));return false;}finally{setBusy(false);}},[save]);
+ const change=useCallback((content:SyncContent,reason='手机编辑')=>{const previous=current.current;if(!previous)return;void save({...previous,content},reason);setMessage(previous.disconnected?'本地已保存，重新连接后继续同步':'本地已保存，正在等待同步');clearTimeout(schedule.current);schedule.current=setTimeout(()=>void sync(),800);},[save,sync]);
+ const claim=useCallback(async(pairCode:string,label:string)=>{if(working.current)return false;working.current=true;setBusy(true);try{await queue.current;const previous=current.current;if(previous?.disconnectPending){const revoked=await cloudRequest('/api/devices/self',{method:'DELETE',headers:{Authorization:`Bearer ${previous.auth.token}`}});if(!revoked.ok)throw Error('请稍后重试，原连接取消尚未确认');await save({...current.current!,disconnectPending:false},'确认原连接取消');}const response=await cloudRequest('/api/devices/claim',{method:'POST',headers:{Authorization:`Bearer ${pairCode}`,'Content-Type':'application/json'},body:JSON.stringify({label})});const body=await connectionResponse(response);const snapshot=parseSnapshot(body.snapshot),latest=current.current;const content=latest?mergeContent(latest.base,latest.content,snapshot.content).content:snapshot.content;await save({...snapshot,content,base:snapshot.content,auth:{token:body.deviceToken,clientId:crypto.randomUUID(),mode:'mobile',label},pending:null,disconnected:false,disconnectPending:false},'手机配对');setEditable(true);setMessage('手机已绑定，长期有效；电脑离线不会断开');return true;}catch(error){setMessage(String(error));return false;}finally{working.current=false;setBusy(false);}},[save]);
+ const disconnect=useCallback(async()=>{if(working.current||current.current?.auth.mode!=='mobile')return;working.current=true;setBusy(true);try{await queue.current;await save({...current.current,disconnected:true,disconnectPending:true},'手机取消连接');setMessage('已取消连接，手机内容和历史记录均保留');}catch(error){setMessage(String(error));}finally{working.current=false;setBusy(false);}void sync();},[save,sync]);
  const rename=useCallback((label:string)=>{if(current.current)void save({...current.current,auth:{...current.current.auth,label}},'编辑署名');},[save]);
- return {state,message,busy,storageError,editable,key,change,sync,claim,rename};
+ return {state,message,busy,storageError,editable,key,change,sync,claim,rename,disconnect};
 }
 
 
