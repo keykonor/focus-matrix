@@ -124,3 +124,11 @@ The portable build runs Vinext directly without a host `timeout` command. The ma
 
 - [vinext Documentation](https://github.com/cloudflare/vinext)
 - [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)
+
+## Android 1.0.2 链接连接修复
+
+配对输入框现可识别电脑生成的完整配对链接、配对码及分享链接。分享链接显示“打开共享计划”，仅按分享权限访问，不能成为管理手机的凭据。下载地址、缺少 # 连接码、陌生域名和错误格式均显示中文提示；非空链接可点击后查看原因，不再无提示地禁用按钮。内置页面校验固定云端域名，避免依赖 Android WebView 的 location.origin。
+
+使用原包名、签名和 HTTPS 本地存储 origin 覆盖安装 1.0.2，不卸载、不清数据。手机与电脑通过云端同步，需双方能访问云端；电脑打开“分享 → 连接安卓手机 → 复制配对链接”，手机在 10 分钟内连接。旧链接已使用或过期时生成新的链接。旧 APK 保留在 outputs/android-versions/。
+
+请求超时使用 AbortController，兼容缺少 AbortSignal.timeout 的旧 WebView。网络中断、HTTP 非 JSON 响应和配对链接过期会显示中文原因。scripts/check-apk-ui.ps1 检查从实际签名 APK 提取的连接界面，包括分享权限分支、正确配对、过期重试、HTTP 403、旧 WebView 超时能力、离线恢复及文本布局；测试浏览器使用独立资料目录和动态端口，结束后关闭。
