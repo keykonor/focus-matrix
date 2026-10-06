@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>Focus Matrix UI preview</title></head>
+  <body>
+    <div id="root"></div>
+    <script>
+      const quadrants = ['important-not-urgent', 'important-urgent', 'not-important-not-urgent', 'urgent-not-important'];
+      const dense = new URLSearchParams(location.search).has('dense');
+      const long = new URLSearchParams(location.search).has('long');
+      const count = dense ? 18 : 3;
+      const tasks = quadrants.flatMap((quadrant, section) => Array.from({ length: count }, (_, index) => ({
+        id: `${section}-${index}`, text: long && index === 0
+          ? '这是一条需要完整显示的较长任务内容，包含多个工作步骤和说明。先整理资料，再与相关同事确认细节，最后按计划完成交付。\n这段文字应保留换行，在窗口变窄时继续自动折行。'
+          : ['梳理下周重点事项', '准备项目汇报材料', '回复需要确认的消息'][index % 3],
+        completed: index === 2, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), quadrant,
+      })));
+      window.__TAURI_INTERNALS__ = {
+        metadata: { currentWindow: { label: 'main' } },
+        invoke: async (command, args) => {
+          if (command === 'plugin:store|load') return 1;
+          if (command === 'plugin:store|get') return [args.key === 'tasks' ? tasks : null, args.key === 'tasks'];
+          if (command === 'plugin:autostart|is_enabled') return false;
+          return null;
+        },
+        transformCallback: () => 1,
+        unregisterCallback: () => {},
+      };
+      if (new URLSearchParams(location.search).has('settings')) {
+        const timer = setInterval(() => {
+          const button = document.querySelector('.settings-button');
+          if (button) { button.click(); clearInterval(timer); }
+        }, 50);
+      }
+      if (new URLSearchParams(location.search).has('edit')) {
+        const timer = setInterval(() => {
+          const input = document.querySelector('.task-text');
+          if (input) { input.focus(); clearInterval(timer); }
+        }, 50);
+      }
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

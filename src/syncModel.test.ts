@@ -1,0 +1,10 @@
+import {describe,it,expect} from 'vitest';
+import {mergeContent,contentChanges,changedText,type SyncContent} from '../cloud-site/lib/syncModel';
+const base:SyncContent={tasks:[{id:'one',text:'原内容',completed:false,quadrant:'important-urgent',createdAt:'2026-10-06',updatedAt:'2026-10-06'}],dailyMemos:{}};
+describe('cross-device merge',()=>{
+ it('merges independent fields without clocks or overwriting other edits',()=>{const local=structuredClone(base),remote=structuredClone(base);local.tasks[0].text='手机编辑';remote.tasks[0].completed=true;const result=mergeContent(base,local,remote);expect(result.content.tasks[0]).toMatchObject({text:'手机编辑',completed:true});expect(result.conflictIds).toHaveLength(0);});
+ it('preserves both versions of conflicting task text',()=>{const local=structuredClone(base),remote=structuredClone(base);local.tasks[0].text='手机版本';remote.tasks[0].text='电脑版本';const result=mergeContent(base,local,remote);expect(result.content.tasks.map(t=>t.text)).toEqual(['电脑版本','手机版本']);expect(mergeContent(base,local,result.content).content).toEqual(result.content);});
+ it('does not resurrect an unchanged task deleted elsewhere',()=>{expect(mergeContent(base,base,{tasks:[],dailyMemos:{}}).content.tasks).toEqual([]);});
+ it('keeps offline edits when the other device deletes the task',()=>{const local=structuredClone(base);local.tasks[0].text='离线编辑';expect(mergeContent(base,local,{tasks:[],dailyMemos:{}}).content.tasks[0].text).toBe('离线编辑');});
+ it('keeps both memo edits and identifies edited text',()=>{const original={tasks:[],dailyMemos:{'2026-10-06':{morning:'原',afternoon:'',evening:'',updatedAt:''}}};const left=structuredClone(original),right=structuredClone(original);left.dailyMemos['2026-10-06'].morning='手机';right.dailyMemos['2026-10-06'].morning='电脑';const result=mergeContent(original,left,right);expect(result.content.dailyMemos['2026-10-06'].morning).toContain('手机');expect(result.content.dailyMemos['2026-10-06'].morning).toContain('电脑');expect(contentChanges(original,result.content,'小王','share',123)[0].actor).toBe('小王');expect(changedText('今天买牛奶','今天买面包')).toEqual(['今天买','面包','']);});
+});

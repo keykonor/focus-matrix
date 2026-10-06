@@ -1,0 +1,10 @@
+import {mkdir,cp,copyFile,readFile,writeFile} from 'node:fs/promises';
+await mkdir('dist',{recursive:true});
+await cp('../cloud-site/public/mobile','dist/mobile',{recursive:true});
+await mkdir('dist/downloads',{recursive:true});
+await copyFile('../outputs/FocusMatrix-Android.apk','dist/downloads/FocusMatrix-Android.apk');
+await cp('cloud-functions','dist/cloud-functions',{recursive:true});
+await copyFile('proxy.mjs','dist/proxy.mjs');await copyFile('package.json','dist/package.json');
+const html=await readFile('dist/mobile/index.html','utf8');
+await writeFile('dist/index.html',html.replace('<head>','<head><script>if(/^#[a-f0-9]{64}$/.test(location.hash)){history.replaceState(null,"", "#share="+location.hash.slice(1));}</script>'));
+console.log('Gateway assets and bundled share/mobile UI prepared; no user data or write keys packaged.');

@@ -1,0 +1,3 @@
+import {changedText,type EditMark} from '../../cloud-site/lib/syncModel';
+export function EditAnnotation({mark}:{mark?:EditMark}){if(!mark)return null;const parts=changedText(mark.beforeText,mark.afterText);const fields:Record<string,string>={text:'文字',completed:'完成状态',quadrant:'象限',created:'新增',deleted:'删除',morning:'早上',afternoon:'下午',evening:'晚上'};
+ return <details className="edit-annotation"><summary>{mark.actor} · {new Date(mark.at).toLocaleString('zh-CN')} · {mark.conflict?'同时修改已保留':'已编辑'}</summary><p>{mark.fields.map(field=>fields[field]??field).join(' / ')}</p>{mark.beforeText!==mark.afterText&&<><p>修改前：{mark.beforeText||'（空）'}</p><p>修改后：{parts[0]}<mark>{parts[1]}</mark>{parts[2]}{!mark.afterText?'（已清空）':''}</p></>}</details>;}

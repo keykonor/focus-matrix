@@ -1,0 +1,8 @@
+import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core';
+export const sharedPlans = sqliteTable('shared_plans', {id:text('id').primaryKey(),content:text('content').notNull(),viewTokenHash:text('view_token_hash').notNull(),updatedAt:integer('updated_at').notNull(),editable:integer('editable').notNull().default(0)});
+export const syncState = sqliteTable('sync_state',{id:text('id').primaryKey(),content:text('content').notNull(),revision:integer('revision').notNull().default(0),updatedAt:integer('updated_at').notNull(),marks:text('marks').notNull().default('{}'),lastCommit:text('last_commit').notNull().default('')});
+export const syncVersions = sqliteTable('sync_versions',{revision:integer('revision').primaryKey(),content:text('content').notNull(),updatedAt:integer('updated_at').notNull()});
+export const syncDevices = sqliteTable('sync_devices',{id:text('id').primaryKey(),tokenHash:text('token_hash').notNull().unique(),label:text('label').notNull(),revoked:integer('revoked').notNull().default(0)});
+export const syncPairings = sqliteTable('sync_pairings',{id:text('id').primaryKey(),tokenHash:text('token_hash').notNull().unique(),expiresAt:integer('expires_at').notNull(),consumed:integer('consumed').notNull().default(0)});
+export const syncReceipts = sqliteTable('sync_receipts',{id:text('id').primaryKey(),requestId:text('request_id').notNull(),revision:integer('revision').notNull()});
+export const syncChanges = sqliteTable('sync_changes',{id:text('id').primaryKey(),revision:integer('revision').notNull(),actor:text('actor').notNull(),source:text('source').notNull(),at:integer('at').notNull(),changes:text('changes').notNull()});

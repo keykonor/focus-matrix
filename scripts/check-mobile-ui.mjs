@@ -1,0 +1,38 @@
+import assert from 'node:assert/strict';
+import {spawn} from 'node:child_process';
+import {writeFile,readFile} from 'node:fs/promises';
+import {join} from 'node:path';
+import {setTimeout as delay} from 'node:timers/promises';
+const fixture=JSON.parse(await readFile('outputs/local-sync-test.json','utf8'));
+const browser=spawn('C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',['--headless=new','--disable-gpu','--no-first-run','--remote-debugging-port=9244',`--user-data-dir=${join(process.cwd(),'.edge-mobile-check')}`,'about:blank'],{stdio:'ignore',windowsHide:true});
+let socket;const pending=new Map(),errors=[];let id=0;
+const send=(method,params={})=>new Promise((resolve,reject)=>{const key=++id;pending.set(key,{resolve,reject});socket.send(JSON.stringify({id:key,method,params}));});
+const evaluate=async expression=>{const result=await send('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(result.exceptionDetails)throw Error(JSON.stringify(result.exceptionDetails));return result.result.value;};
+const wait=async expression=>{for(let i=0;i<150;i++){if(await evaluate(`Boolean(${expression})`))return;await delay(100);}throw Error('等待失败: '+expression+'; '+JSON.stringify(errors)+'; '+JSON.stringify(errors)+'; '+await evaluate('document.body.innerText'));};
+const type=async(selector,value,textarea=true)=>{await evaluate(`(()=>{const el=document.querySelector(${JSON.stringify(selector)});Object.getOwnPropertyDescriptor(${textarea?'HTMLTextAreaElement':'HTMLInputElement'}.prototype,'value').set.call(el,${JSON.stringify(value)});el.dispatchEvent(new Event('input',{bubbles:true}));})()`);};
+const fits=()=>evaluate('document.documentElement.scrollWidth<=innerWidth && [...document.querySelectorAll("textarea")].every(el=>el.scrollHeight<=el.clientHeight+2)');
+try{
+ let page;for(let i=0;i<80;i++){try{page=(await(await fetch('http://127.0.0.1:9244/json/list')).json())[0];}catch{}if(page)break;await delay(100);}assert.ok(page);socket=new WebSocket(page.webSocketDebuggerUrl);await new Promise(r=>socket.addEventListener('open',r,{once:true}));socket.addEventListener('message',({data})=>{const msg=JSON.parse(data),callback=pending.get(msg.id);if(callback){pending.delete(msg.id);msg.error?callback.reject(Error(msg.error.message)):callback.resolve(msg.result);}if(msg.method==='Runtime.exceptionThrown')errors.push(msg.params.exceptionDetails.text);});await send('Runtime.enable');await send('Network.enable');
+ await send('Page.navigate',{url:`${fixture.origin}/#${fixture.view}`});await wait("document.querySelectorAll('.mobile-quadrant').length===4 && document.querySelector('.add-mobile')");
+ for(const [width,height] of [[1440,900],[390,844],[320,640]]){await send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false});await delay(200);assert.ok(await fits(),`手机布局 ${width}×${height}`);}
+ const selector=`[data-task-id="${fixture.taskId}"] textarea`;
+ await send('Network.setBlockedURLs',{urls:[`${fixture.origin}/api/*`]});
+ const text='手机离线编辑后的完整内容 '+Date.now()+'\n'+('这是一段很长的任务内容，需要全部显示并自动换行。'.repeat(25));await type(selector,text);await delay(1200);assert.equal(await evaluate(`document.querySelector(${JSON.stringify(selector)}).value`),text);assert.ok(await fits());
+ await send('Page.reload');await wait(`document.querySelector(${JSON.stringify(selector)})?.value===${JSON.stringify(text)}`);assert.ok(await evaluate("Boolean(document.querySelector('.add-mobile'))"),'离线恢复后仍可编辑');
+ await send('Network.setBlockedURLs',{urls:[]});await evaluate("window.dispatchEvent(new Event('online'))");await wait("document.querySelector('.mobile-status').textContent.includes('已与电脑和云端同步')");
+ const remote=await(await fetch(`${fixture.origin}/api/plan`,{headers:{Authorization:`Bearer ${fixture.view}`}})).json();assert.equal(remote.content.tasks.find(task=>task.id===fixture.taskId).text,text);assert.equal(remote.marks[fixture.taskId].source,'share');
+ await evaluate(`document.querySelector('[data-task-id="${fixture.taskId}"] .edit-annotation').open=true`);assert.ok(await evaluate("Boolean(document.querySelector('mark'))"));assert.ok(await fits());await writeFile('outputs/mobile-matrix.png',Buffer.from((await send('Page.captureScreenshot',{captureBeyondViewport:true})).data,'base64'));
+ await evaluate("[...document.querySelectorAll('nav button')].find(el=>el.textContent==='日期').click()");await wait("document.querySelectorAll('.mobile-calendar textarea').length===3");await type('.mobile-calendar textarea','手机新增当日备忘录\n第二行内容');await delay(1200);assert.ok(await fits());await writeFile('outputs/mobile-calendar.png',Buffer.from((await send('Page.captureScreenshot')).data,'base64'));
+ await evaluate("[...document.querySelectorAll('nav button')].find(el=>el.textContent==='版本').click()");await wait("document.querySelector('.version-row')");assert.ok(await fits());await evaluate("document.querySelector('[aria-label=\"关闭记录\"]').click()");
+ await send('Page.navigate',{url:'http://127.0.0.1:1420/calendar-preview.html'});await wait("document.querySelector('.cloud-button')?.disabled===false");await evaluate("document.querySelector('.cloud-button').click()");await wait("document.querySelector('.cloud-modal')");
+ for(const [width,height] of [[520,360],[720,480],[1200,760]]){await send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false});await delay(150);assert.ok(await evaluate('document.documentElement.scrollWidth<=innerWidth'));}
+ await writeFile('outputs/mobile-desktop-settings.png',Buffer.from((await send('Page.captureScreenshot')).data,'base64'));
+ await evaluate("document.querySelector('[aria-label=\"关闭云端分享设置\"]').click()");
+ await delay(600);const previous=await evaluate("JSON.parse(sessionStorage.getItem('calendar-check-data'))"),now=new Date().toISOString();
+ const desktopRemote={tasks:[...previous.tasks,{id:'cloud-peer-task',text:'其他设备新增内容\n完整保留第二行',completed:false,quadrant:'important-not-urgent',createdAt:now,updatedAt:now}],dailyMemos:previous.dailyMemos??{}};
+ const delivery={requestId:'test-sync',sentContent:{tasks:previous.tasks,dailyMemos:previous.dailyMemos??{}},snapshot:{content:desktopRemote,revision:12,updatedAt:Date.now(),marks:{'cloud-peer-task':{entity:'cloud-peer-task',actor:'手机编辑者',source:'mobile',at:Date.now(),fields:['created'],beforeText:'',afterText:desktopRemote.tasks.at(-1).text}}},conflicts:0};
+ await evaluate(`sessionStorage.setItem('history-check-fail','1');sessionStorage.setItem('cloud-check-delivery',${JSON.stringify(JSON.stringify(delivery))});window.dispatchEvent(new Event('focus-matrix:content-saved'));`);await delay(1900);
+ assert.ok(await evaluate("Boolean(sessionStorage.getItem('cloud-check-delivery'))"),'保存失败不能确认云端响应');assert.equal(await evaluate("document.querySelectorAll('[data-task-id=cloud-peer-task]').length"),0);
+ await evaluate("sessionStorage.removeItem('history-check-fail');window.dispatchEvent(new Event('focus-matrix:content-saved'))");await wait("document.querySelector('[data-task-id=cloud-peer-task] .task-text')");await wait("sessionStorage.getItem('cloud-check-ack')==='1'");
+ const after=await evaluate("JSON.parse(sessionStorage.getItem('calendar-check-data'))");assert.deepEqual(after.tasks,desktopRemote.tasks);assert.deepEqual(after.settings,previous.settings);assert.deepEqual(after.dailyMemos,previous.dailyMemos??{});assert.ok(await evaluate("document.querySelector('[data-task-id=cloud-peer-task] .edit-annotation').textContent.includes('手机编辑者')"));assert.ok(await fits());assert.deepEqual(errors,[]);console.log('手机 UI：320/390 像素布局、完整换行、离线保存/恢复/重连同步、编辑标注、日期备忘录、历史版本和电脑弹窗均通过。');
+}finally{socket?.close();browser.kill();}
