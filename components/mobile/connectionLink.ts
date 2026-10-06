@@ -1,4 +1,10 @@
-export const cloudOrigin='https://focus-matrix-plans-17154.just-bard-2476.chatgpt.site';
+import config from '../../lib/publicCloudConfig.json';
+export const cloudOrigin=config.publicOrigin;
+export const trustedOrigins=new Set([config.legacyOrigin,config.publicOrigin,config.apiOrigin]);
+export function apiAddress(path:string){
+ if(!path.startsWith('/api/')||path.includes('://'))throw Error('无效云端接口');
+ return /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(location.origin)||config.apiOrigin===config.legacyOrigin?path:config.apiOrigin+path;
+}
 const validToken=/^[a-f0-9]{64}$/;
 export type ConnectionLink={kind:'pair';token:string}|{kind:'share';token:string}|{kind:'invalid';message:string};
 
@@ -13,7 +19,7 @@ export function parseConnectionLink(value:string,currentOrigin=cloudOrigin):Conn
  else{
   let url:URL;try{url=new URL(text);}catch{return {kind:'invalid',message:'链接格式不完整，请在电脑里点击“复制配对链接”后重新粘贴。'};}
   const localPreview=/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(currentOrigin)&&url.origin===currentOrigin;
-  if(url.origin!==cloudOrigin&&!localPreview)return {kind:'invalid',message:'这不是 Focus Matrix 的链接，请从电脑软件重新复制。'};
+  if(!trustedOrigins.has(url.origin)&&!localPreview)return {kind:'invalid',message:'这不是 Focus Matrix 的链接，请从电脑软件重新复制。'};
   if(url.pathname.startsWith('/downloads/'))return {kind:'invalid',message:'这是安装包下载地址。请在电脑“分享 → 连接安卓手机”中复制配对链接。'};
   hash=url.hash.slice(1);
   if(validToken.test(hash))return {kind:'share',token:hash};
