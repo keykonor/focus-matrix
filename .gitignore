@@ -28,3 +28,4 @@ cloud-gateway/node_modules/
 cloud-gateway/cloud-gateway.zip
 outputs/
 cloud-site/.git
+cloud-site/public/downloads/
