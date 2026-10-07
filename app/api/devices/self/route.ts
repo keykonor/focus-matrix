@@ -1,8 +1,9 @@
+import {publicCloudRequest} from '@/lib/publicCloudRequest';
 import {bearer,database,reply} from '@/lib/syncServer';
 import {hashToken} from '@/lib/plans';
 
 // A phone may revoke only its own credential. Sharing and owner keys cannot use this route.
-export async function DELETE(request:Request){
+async function legacyDELETE(request:Request){
  const token=bearer(request);
  if(!token)return reply({error:'无手机连接凭据'},401);
  const db=database(),hashed=await hashToken(token);
@@ -11,3 +12,5 @@ export async function DELETE(request:Request){
  await db.prepare('UPDATE sync_devices SET revoked=1 WHERE id=?').bind(device.id).run();
  return reply({revoked:true});
 }
+
+export const DELETE=(request:Request)=>publicCloudRequest(request,legacyDELETE);
