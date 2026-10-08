@@ -2,6 +2,8 @@
 
 用户要求：每次更新软件，都要保留更新前的内容。任务、日期备忘录、设置和窗口状态不能因更新而清空或被覆盖。
 
+- 用户要求保留每个软件版本。从 2026-10-08 起，每次修改软件前及更新完成后运行 `npm run version:save -- "版本说明"`；桌面安装和 Android 构建脚本也会自动保存源码。该命令提交当前未忽略源码，创建不可覆盖的 `versions/` 标签及 `outputs/source-versions/` 源码 ZIP、提交哈希和 SHA-256 清单，失败时停止更新。禁止自动删除标签、提交历史或归档。源码归档不替代原有用户数据备份；不允许提交密钥、签名或任务数据。历史缺失的版本不能声称已恢复。
+
 - 更新本机安装版时，使用 `scripts/install-local.ps1`；不要直接复制新的 exe 覆盖安装目录。该脚本必须先运行 `scripts/backup-before-update.ps1`，并在备份失败时停止更新。
 - 修改本地存储格式或直接接触用户数据前，也要先运行备份脚本。保留原始文件，迁移应兼容已有任务和设置。
 - 备份位于 `%APPDATA%\com.focusmatrix.desktop\backups\`，按时间分目录保存任务数据、窗口状态、旧版 exe 和 SHA-256 清单。不要自动删除旧备份。
@@ -24,3 +26,9 @@
 - 手机主动取消连接先持久保存 disconnected/disconnectPending，再调用仅能撤销自己的 /api/devices/self；离线待确认期间停止同步但保留草稿、基线、待重试内容和历史，联网后重试确认。重新配对必须合并原离线内容，不能直接以云端覆盖。
 - 2026-10-07 已复现原 chatgpt.site 普通网络返回 Cloudflare HTML 403，而电脑代理返回真实 API JSON。代理访问成功不能作为手机/分享链接可访问的验收结果。新的正式公网入口必须通过无代理、无托管预览令牌的健康及权限测试，才能切换 cloud-site/lib/publicCloudConfig.json，并构建更新客户端；保留 Android 原 IndexedDB origin 和原数据库/设备凭据。
 - cloud-gateway/ 准备了腾讯 EdgeOne 免费公网入口，当前正式账号授权/认领尚未确认。临时诊断项目返回托管预览限制，不能当作可用的长期链接，也不能把 eo_token 或 .edgeone 凭据写进客户端。继续部署先确认 whoami 与认领；不要将“腾讯网页已登录”等同于 CLI 已授权。原 Sites project_id 不变，用户安装版在新地址通过验收前不替换。
+- 2026-10-07 已用腾讯官方 CloudBase CLI 3.8.5 成功执行 cloudbase/ 下的 `tcb config update fn focus-matrix-api`，交互选择合并环境变量。原配置 instanceConcurrencyConfig 仅有空 dynamicEnabled，触发 FailedOperation.MaxConcurrency；移除此空配置后更新成功，保留云端现有并发参数。读取云端函数确认 Active，TCB_ENV、PUBLIC_ORIGIN、CLOUDBASE_API_KEY、FOCUS_MATRIX_WRITE_TOKEN 四项均与本地匹配，密钥值未输出。本地 cloudbase/cloudbaserc.json 含服务端密钥，已在 .gitignore 中，禁止发布或复制到客户端。该次更新未触碰用户任务数据或安装版。当前配置的 tcloudbaseapp.com 地址 /api/health 与 /api/plan 无代理访问仍为 HTML 404；CLI service list 存在 /api → focus-matrix-api，但公网入口路由/域名尚未验收，不能声称手机同步恢复，也不能切换正式客户端地址。
+- 2026-10-07 桌面正式版已通过 `npm run tauri build -- --no-bundle` 构建，并经 `scripts/install-local.ps1` 更新、正常重启。备份目录为 backups/20261007-223818-707-b8b1ed；任务、日期备忘录、设置和窗口状态核对通过。新正式 API 为 https://matrix-d4ggytzjuc8ad872a-1323076267.ap-shanghai.app.tcloudbase.com；原 tcloudbaseapp.com 是错误的静态入口。用户已明确批准向其 CloudBase 迁移原云端任务、备忘录、版本、分享权限及设备绑定；已先生成当前用户 DPAPI 加密云快照备份，逐表验证迁移成功，原 Sites DB 未删除。腾讯函数沿用原桌面 DPAPI 写入密钥，原分享令牌及设备哈希不变。现有 Sites project_id 不变，版本 7（a842276c5dbe63aa484828a4bc0465ef085761cf）已发布，旧 API 代理至腾讯，避免双库分裂。
+- CloudBase 使用 public.focus_matrix_commit RPC 原子提交内容、不可覆盖版本、编辑日志及回执；迁移 SQL 和自动回滚测试位于 cloudbase/migrations/20261007223000_atomic_sync_commit.sql、cloudbase/tests/atomic-sync.sql。Windows 应直接 `node .cloud-tools/cloudbase/node_modules/@cloudbase/cli/bin/tcb ...` 调用官方 CLI，避免 .cmd 包装器损坏 JSON 引号和多行 SQL。
+- 新 API 无代理健康、匿名权限、真实安装版内容一致、编辑撤权、临时设备配对/撤销、APK 哈希检查均通过。16 项 Vitest、8 项 Rust 测试、APK 资源/离线浏览器检查通过。桌面 520/720/1200 宽度无溢出，临时 CDP 已关闭。
+- Android 1.0.4（versionCode 5）APK 已构建，包名及原签名不变，HTTPS IndexedDB origin 仍为原 chatgpt.site，API 改为腾讯。新域名链接可识别且打开时归一到原存储来源。只构建了更新包，未在真实手机覆盖安装；旧 APK 仍使用旧 API，需 install -r 或由手机用户覆盖安装，不能清数据。新版签名 APK SHA-256：448B5F21AD2AC402E6850DE79BDC3FF0DBA1F6745FB1C7F3848FB49632C9D5FA。
+- 腾讯默认 app.tcloudbase.com 域名的浏览器导航实测返回平台“页面访问提示”（HTTP 404），普通资源请求附 Content-Disposition: attachment；真实公网网页浏览器验收未通过，不能声称分享网页已稳定可用。JSON API 与 APK 内置页面同步不受本次观察到的导航提示影响。下一步需要符合腾讯要求的正式网页域名或已授权正式免费静态托管前端，不可绕过平台提示，也不要把 Node fetch 200 当作浏览器页面通过。桌面“Focus Matrix 安卓部署”快捷方式只是 ADB 安装辅助工具，日常启动用“Focus Matrix”。

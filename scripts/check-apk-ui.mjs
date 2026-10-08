@@ -7,6 +7,7 @@ import {join,resolve,sep} from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import {createServer} from 'node:net';
 const origin='https://focus-matrix-plans-17154.just-bard-2476.chatgpt.site';
+const apiOrigin=JSON.parse(await readFile('cloud-site/lib/publicCloudConfig.json','utf8')).apiOrigin;
 const directory=resolve('outputs/apk-ui-assets');
 const reservation=createServer();await new Promise(r=>reservation.listen(0,'127.0.0.1',r));const port=reservation.address().port;await new Promise(r=>reservation.close(r));
 const browser=spawn('C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',['--headless=new','--disable-gpu','--disable-extensions','--no-first-run',`--remote-debugging-port=${port}`,`--user-data-dir=${join(process.cwd(),'.edge-apk-boot-check-'+Date.now())}`,'about:blank'],{stdio:'ignore',windowsHide:true});
@@ -19,12 +20,14 @@ const evaluate=async expression=>{const response=await send('Runtime.evaluate',{
 const wait=async expression=>{for(let i=0;i<100;i++){if(await evaluate(`Boolean(${expression})`))return;await delay(100);}throw Error('APK startup timeout: '+JSON.stringify({errors,served:[...served],blocked})+'; '+await evaluate('location.href+\" | \"+document.body.innerText.slice(0,300)'));};
 const intercept=async params=>{
  const uri=new URL(params.request.url),path=resolve(directory,'.'+decodeURIComponent(uri.pathname));
- if(uri.origin===origin&&uri.pathname.startsWith('/api/')&&apiMode!=='offline'){
+ if((uri.origin===origin||uri.origin===apiOrigin)&&uri.pathname.startsWith('/api/')&&apiMode!=='offline'){
+  const cors=[{name:'Access-Control-Allow-Origin',value:origin},{name:'Access-Control-Allow-Headers',value:'Authorization, Content-Type'},{name:'Access-Control-Allow-Methods',value:'GET, POST, DELETE, OPTIONS'}];
+  if(params.request.method==='OPTIONS'){await send('Fetch.fulfillRequest',{requestId:params.requestId,responseCode:204,responseHeaders:cors});return;}
   requests.push({path:uri.pathname,method:params.request.method,authorization:params.request.headers.Authorization??params.request.headers.authorization});
   const isClaim=uri.pathname==='/api/devices/claim';
   const status=isClaim&&apiMode==='expired'?401:isClaim&&apiMode==='html'?403:200;
   const body=status===401?{error:'配对链接已过期或已使用，请在电脑上重新生成'}:isClaim?{deviceToken,deviceId:'fixture-device',snapshot}:uri.pathname==='/api/devices/self'?{revoked:true}:uri.pathname==='/api/plan'?{...snapshot,editable:true}:{snapshot};
-  await send('Fetch.fulfillRequest',{requestId:params.requestId,responseCode:status,responseHeaders:[{name:'Content-Type',value:apiMode==='html'?'text/html':'application/json'}],body:Buffer.from(apiMode==='html'?'<html>Unavailable</html>':JSON.stringify(body)).toString('base64')});return;
+  await send('Fetch.fulfillRequest',{requestId:params.requestId,responseCode:status,responseHeaders:[...cors,{name:'Content-Type',value:apiMode==='html'?'text/html':'application/json'}],body:Buffer.from(apiMode==='html'?'<html>Unavailable</html>':JSON.stringify(body)).toString('base64')});return;
  }
  if(uri.origin!==origin||!uri.pathname.startsWith('/mobile/')||!path.startsWith(directory+sep)){blocked++;await send('Fetch.failRequest',{requestId:params.requestId,errorReason:'InternetDisconnected'});return;}
  try{const bytes=await readFile(path);served.add(uri.pathname);const mime=path.endsWith('.html')?'text/html; charset=utf-8':path.endsWith('.js')?'application/javascript':'text/css';await send('Fetch.fulfillRequest',{requestId:params.requestId,responseCode:200,responseHeaders:[{name:'Content-Type',value:mime},{name:'Cache-Control',value:'no-store'}],body:bytes.toString('base64')});}catch{await send('Fetch.fulfillRequest',{requestId:params.requestId,responseCode:404,body:''});}

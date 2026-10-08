@@ -4,6 +4,8 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 $root=Split-Path -Parent $PSScriptRoot
 Set-Location -LiteralPath $root
+& node (Join-Path $PSScriptRoot 'save-version.mjs') 'Before Android build'
+if ($LASTEXITCODE -ne 0) { throw 'Source version backup failed. Android build stopped.' }
 $tools=Join-Path $root '.android-tools'
 $jdk=(Get-ChildItem (Join-Path $tools 'jdk') -Directory | Select-Object -First 1).FullName
 $bt=Join-Path $tools 'build-tools/android-16'

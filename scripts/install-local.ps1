@@ -17,6 +17,9 @@ if (-not $Executable) {
     $Executable = Join-Path (Split-Path -Parent $PSScriptRoot) 'src-tauri\target\release\focus-matrix.exe'
 }
 $source = (Resolve-Path -LiteralPath $Executable -ErrorAction Stop).Path
+# Preserve the complete source state before touching the installed program.
+& node (Join-Path $PSScriptRoot 'save-version.mjs') 'Before desktop update'
+if ($LASTEXITCODE -ne 0) { throw 'Source version backup failed. Update stopped.' }
 $installedDirectory = Join-Path $env:LOCALAPPDATA 'Programs\FocusMatrix'
 $installedExecutable = Join-Path $installedDirectory 'FocusMatrix.exe'
 $legacyExecutable = Join-Path $env:LOCALAPPDATA 'Programs\Focus Matrix\Focus Matrix.exe'

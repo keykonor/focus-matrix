@@ -5,11 +5,15 @@
 
 const http = require('http');
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 
 const ENV = process.env.TCB_ENV || '';
 const API_KEY = process.env.CLOUDBASE_API_KEY || '';
 const WRITE_TOKEN = process.env.FOCUS_MATRIX_WRITE_TOKEN || '';
 const PUBLIC_ORIGIN = process.env.PUBLIC_ORIGIN || '';
+const ALLOWED_ORIGINS = new Set([PUBLIC_ORIGIN, 'https://focus-matrix-plans-17154.just-bard-2476.chatgpt.site', 'http://tauri.localhost', 'https://tauri.localhost', 'tauri://localhost']);
+const PUBLIC_DIRECTORY = path.join(__dirname, 'public');
 const REST = `https://${ENV}.api.tcloudbasegateway.com/v1/rdb/rest`;
 
 const SECURITY_HEADERS = {
@@ -37,7 +41,7 @@ function owner(req) { return !!WRITE_TOKEN && equalToken(bearer(req), WRITE_TOKE
 function corsHeaders(req) {
   const h = { ...SECURITY_HEADERS };
   const origin = req.headers['origin'];
-  if (origin) {
+  if (origin && ALLOWED_ORIGINS.has(origin)) {
     h['Access-Control-Allow-Origin'] = origin;
     h['Vary'] = 'Origin';
     h['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS';
@@ -246,33 +250,29 @@ async function syncPost(req) {
   }
   const receiptId = `${auth.id}:${data.clientId}`;
   const commitId = `${receiptId}:${data.requestId}`;
-  const first = await rest('GET', 'sync_receipts', { select: 'request_id', filter: { id: 'eq.' + encodeURIComponent(receiptId) } });
+  const first = await rest('GET', 'sync_receipts', { select: 'request_id', filter: { id: 'eq.' + receiptId } });
   if (first[0] && first[0].request_id === data.requestId) return { status: 200, body: { snapshot: await snapshot(), conflicts: 0 } };
   for (let attempt = 0; attempt < 6; attempt++) {
-    const seen = await rest('GET', 'sync_receipts', { select: 'request_id', filter: { id: 'eq.' + encodeURIComponent(receiptId) } });
+    const seen = await rest('GET', 'sync_receipts', { select: 'request_id', filter: { id: 'eq.' + receiptId } });
     if (seen[0] && seen[0].request_id === data.requestId) return { status: 200, body: { snapshot: await snapshot(), conflicts: 0 } };
     const before = await snapshot();
     const merged = mergeContent(data.base, data.content, before.content);
     const now = Date.now();
-    if (same(merged.content, before.content)) {
-      await rest('POST', 'sync_receipts', { body: { id: receiptId, request_id: data.requestId, revision: before.revision }, upsert: true, onConflict: 'id' });
-      return { status: 200, body: { snapshot: before, conflicts: 0 } };
-    }
+    const changed = !same(merged.content, before.content);
     const actor = auth.source === 'share' ? data.actor : auth.label;
     const changes = contentChanges(before.content, merged.content, actor, auth.source, now, merged.conflictIds);
     const marks = { ...before.marks };
     for (const change of changes) marks[change.entity] = change;
+    const committed = await rest('POST', 'rpc/focus_matrix_commit', { body: {
+      p_receipt_id: receiptId, p_request_id: data.requestId, p_commit_id: commitId,
+      p_expected_revision: before.revision, p_content: JSON.stringify(merged.content),
+      p_marks: JSON.stringify(marks), p_updated_at: now, p_actor: actor,
+      p_source: auth.source, p_changes: JSON.stringify(changes), p_changed: changed
+    }});
+    if (!committed.committed) continue;
+    if (committed.duplicate) return { status: 200, body: { snapshot: await snapshot(), conflicts: 0 } };
+    if (!changed) return { status: 200, body: { snapshot: before, conflicts: 0 } };
     const nextRevision = before.revision + 1;
-    const updated = await rest('PATCH', 'sync_state', {
-      filter: { id: 'eq.main', revision: 'eq.' + before.revision },
-      body: { content: JSON.stringify(merged.content), revision: nextRevision, updated_at: now, marks: JSON.stringify(marks), last_commit: commitId },
-      preferRepresentation: true,
-    });
-    if (!updated[0]) continue;
-    await rest('POST', 'sync_versions', { body: { revision: nextRevision, content: JSON.stringify(merged.content), updated_at: now }, upsert: true, onConflict: 'revision' });
-    await rest('POST', 'sync_receipts', { body: { id: receiptId, request_id: data.requestId, revision: nextRevision }, upsert: true, onConflict: 'id' });
-    await rest('POST', 'sync_changes', { body: { id: commitId, revision: nextRevision, actor, source: auth.source, at: now, changes: JSON.stringify(changes) }, upsert: true, onConflict: 'id' });
-    await rest('PATCH', 'shared_plans', { filter: { id: 'eq.main' }, body: { content: JSON.stringify(merged.content), updated_at: now } });
     return { status: 200, body: { snapshot: { content: merged.content, revision: nextRevision, updatedAt: now, marks }, conflicts: merged.conflictIds.length } };
   }
   return { status: 409, body: { error: '其他设备正在同步，请重试' } };
@@ -343,8 +343,22 @@ const ROUTES = {
 };
 
 const server = http.createServer(async (req, res) => {
+  if(req.headers.origin && !ALLOWED_ORIGINS.has(req.headers.origin))return sendJson(req,res,403,{error:'不允许的请求来源'});
   if (req.method === 'OPTIONS') { res.writeHead(204, corsHeaders(req)); return res.end(); }
   const url = new URL(req.url || '/', 'http://localhost');
+  if(!url.pathname.startsWith('/api/') && (req.method==='GET'||req.method==='HEAD')){
+    const filename=url.pathname==='/'?'index.html':url.pathname.slice(1);
+    if(/^(?:index\.html|mobile\/(?:index\.html|assets\/[a-zA-Z0-9_-]+\.(?:js|css))|downloads\/FocusMatrix-Android\.apk)$/.test(filename)){
+      const file=path.join(PUBLIC_DIRECTORY,filename);
+      if(fs.existsSync(file)){
+        const ext=path.extname(file),types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.apk':'application/vnd.android.package-archive'};
+        res.writeHead(200,{...SECURITY_HEADERS,'Content-Type':types[ext],'Content-Length':fs.statSync(file).size});
+        if(req.method==='HEAD')return res.end();
+        return fs.createReadStream(file).on('error',()=>res.destroy()).pipe(res);
+      }
+    }
+    return sendJson(req,res,404,{error:'页面不存在'});
+  }
   const route = ROUTES[url.pathname];
   if (!route) return sendJson(req, res, 404, { error: '接口不存在' });
   const handler = route[req.method];

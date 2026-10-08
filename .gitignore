@@ -30,3 +30,15 @@ outputs/
 cloud-site/.git
 cloud-site/public/downloads/
 cloudbase/cloudbaserc.json
+cloudbase/functions/focus-matrix-api/public/
+# Local credentials and user data must never enter source snapshots.
+.env*
+!.env.example
+.dev.vars*
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.dpapi
+.cloud-config*.bin*
+backups/

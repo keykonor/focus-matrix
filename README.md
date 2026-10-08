@@ -25,6 +25,20 @@ npm run tauri build -- --no-bundle
 
 更新当前电脑的安装版时，运行 `powershell -ExecutionPolicy Bypass -File scripts/install-local.ps1`。脚本先保存并校验任务、设置、窗口状态和旧版 exe，再替换程序；备份失败会中止更新。仅需备份时运行 `powershell -ExecutionPolicy Bypass -File scripts/backup-before-update.ps1`。备份保留在 `%APPDATA%\com.focusmatrix.desktop\backups\`，不会自动删除。
 
+## 软件版本保留
+
+每次运行桌面更新脚本 `scripts/install-local.ps1` 或 Android 构建脚本 `scripts/build-android.ps1`，会先保存当前完整源码：提交所有未忽略的源码修改，创建唯一的 `versions/` Git 标签，再生成源码压缩包及 SHA-256 清单。任一步失败都会停止后续更新。标签和压缩包不自动覆盖或删除。
+
+```powershell
+npm run version:save -- "本次版本说明"
+npm run version:list
+npm run version:test
+```
+
+源码压缩包位于项目内 `outputs/source-versions/`，每个版本一个独立目录。可解压对应的 `source.zip` 到新文件夹查看、构建旧版；也可使用 `git show <版本标签>:<文件路径>` 查看某个旧文件。请勿通过清空任务数据或卸载手机应用恢复软件版本。
+
+源码归档不包含用户任务、备忘录、密钥、签名文件和安装包。桌面更新前的程序及用户数据继续保存在 `%APPDATA%\com.focusmatrix.desktop\backups\`；Android 旧 APK 继续保存在 `outputs/android-versions/`。应用内“历史”用于恢复任务和备忘录。这些记录均不自动删除；此前未保存的版本无法凭空补回。所有备份目前仅保存在这台电脑，重要版本建议另行复制到其他磁盘。
+
 ## 使用
 
 - 点击顶部“历史”查看以前的任务和日期备忘录。编辑内容后，400 毫秒自动保存时会保留一个完整内容版本；删除或修改过的内容可从旧版本恢复。也可以点击“保存当前版本”手动留下记录。

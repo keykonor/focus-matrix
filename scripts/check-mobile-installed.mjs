@@ -11,7 +11,7 @@ const evaluate=expression=>new Promise((resolve,reject)=>{const key=++id;pending
 const invoke=(command,args={})=>evaluate(`window.__TAURI_INTERNALS__.invoke(${JSON.stringify(command)},${JSON.stringify(args)})`);
 const dataDirectory=join(process.env.APPDATA,'com.focusmatrix.desktop');
 const readContent=async()=>{const data=JSON.parse(await readFile(join(dataDirectory,'focus-matrix.json'),'utf8'));return {tasks:data.tasks,dailyMemos:data.dailyMemos??{}};};
-const origin='https://focus-matrix-plans-17154.just-bard-2476.chatgpt.site';
+const origin=JSON.parse(await readFile('cloud-site/lib/publicCloudConfig.json','utf8')).apiOrigin;
 const request=async(path,token,body,method=body?'POST':'GET')=>{const response=await fetch(origin+path,{method,headers:{...(token?{Authorization:`Bearer ${token}`}:{}) ,...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(20000)});return {status:response.status,body:await response.json()};};
 let deviceId;
 try{
@@ -19,6 +19,12 @@ try{
  const token=new URL(status.shareUrl).hash.slice(1),plan=await request('/api/plan',token);assert.equal(plan.status,200);assert.equal(plan.body.editable,true);assert.ok(isDeepStrictEqual(plan.body.content,await readContent()),'Cloud and local content differ');assert.equal((await request('/api/plan')).status,404);
  assert.equal((await request('/api/devices/pair',token,undefined,'POST')).status,401);
  assert.equal((await request('/api/devices/self',token,undefined,'DELETE')).status,401);
+ try{
+  await invoke('set_share_editing',{enabled:false});
+  const rejected=await request('/api/sync',token,{base:plan.body.content,content:plan.body.content,clientId:crypto.randomUUID(),requestId:crypto.randomUUID(),actor:'权限检查'});
+  assert.equal(rejected.status,401,'Revoked sharing still permits edits');
+  assert.equal((await request('/api/plan',token)).status,200,'Revoking edit permission should preserve viewing');
+ }finally{await invoke('set_share_editing',{enabled:true});}
  const paired=await invoke('create_mobile_pairing'),code=new URLSearchParams(new URL(paired.pairingUrl).hash.slice(1)).get('pair');
  const claim=await request('/api/devices/claim',code,{label:'发布检查（临时）'});assert.equal(claim.status,200);deviceId=claim.body.deviceId;const deviceToken=claim.body.deviceToken;
  const mobile=await request('/api/sync',deviceToken);assert.equal(mobile.status,200);assert.ok(isDeepStrictEqual(mobile.body.snapshot.content,await readContent()),'Phone and desktop content differ');assert.equal((await request('/api/devices',deviceToken)).status,401);

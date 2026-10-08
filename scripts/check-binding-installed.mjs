@@ -37,7 +37,7 @@ try{
  const info=await evaluate('window.__TAURI_INTERNALS__.invoke("list_mobile_devices")');assert.ok(Array.isArray(info.devices));
  const status=await evaluate('window.__TAURI_INTERNALS__.invoke("get_cloud_status")');
  assert.deepEqual(status.phoneConnection.devices,info.devices);assert.equal('writerKey' in status,false);
- const backups=(await readdir(join(dataDirectory,'backups'))).sort().reverse();
+ const backups=(await readdir(join(dataDirectory,'backups'),{withFileTypes:true})).filter(entry=>entry.isDirectory()).map(entry=>entry.name).sort().reverse();
  const backup=join(dataDirectory,'backups',backups[0]);
  const prior=JSON.parse(await readFile(join(backup,'focus-matrix.json'),'utf8')),current=JSON.parse(await readFile(join(dataDirectory,'focus-matrix.json'),'utf8'));
  for(const field of ['tasks','dailyMemos','settings'])assert.deepEqual(current[field],prior[field],field+' 被更新修改');
