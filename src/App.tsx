@@ -14,6 +14,7 @@ import { CloudShareModal } from './components/CloudShareModal';
 import { useCloudSharing, type CloudDelivery } from './hooks/useCloudSharing';
 import { mergeContent,same,type EditMark } from '../cloud-site/lib/syncModel';
 import { archiveContent, type ContentVersion } from './contentHistory';
+import { restoreTaskContent } from './taskHistory';
 import { changeMemo } from './calendarModel';
 import { useToday } from './hooks/useToday';
 import { changeTask, newTask } from './taskModel';
@@ -40,6 +41,9 @@ export default function App() {
   const [syncMarks,setSyncMarks] = useState<Record<string,EditMark>>({});
   const [focusId, setFocusId] = useState<string | null>(null);
   const [saveError, setSaveError] = useState(false);
+  const [savingVersion, setSavingVersion] = useState(false);
+  const [saveNotice, setSaveNotice] = useState('');
+  const savingVersionRef = useRef(false);
   const storeRef = useRef<Store | null>(null);
   const dataRef = useRef({ tasks, settings, dailyMemos, syncMarks });
   const saveQueue = useRef<Promise<void>>(Promise.resolve());
@@ -169,9 +173,23 @@ export default function App() {
   const toggleCalendar = () => {if(!restoringRef.current)setSettings((current) => ({ ...current, calendarOpen: !current.calendarOpen }));};
   const openHistory = async () => { await flushSave(); setHistoryOpen(true); };
   const saveVersion = async () => {
-    if (!(await flushSave())) throw new Error('Current content could not be saved');
-    await archiveContent({ tasks: dataRef.current.tasks, dailyMemos: dataRef.current.dailyMemos }, 'manual');
+    if (savingVersionRef.current || restoringRef.current) throw new Error('正在保存或恢复，请稍后重试');
+    savingVersionRef.current = true; setSavingVersion(true);
+    try {
+      if (!(await flushSave())) throw new Error('Current content could not be saved');
+      await archiveContent({ tasks: dataRef.current.tasks, dailyMemos: dataRef.current.dailyMemos }, 'manual');
+    } finally { savingVersionRef.current = false; setSavingVersion(false); }
   };
+  const saveFromMain = async () => {
+    setSaveNotice('');
+    try { await saveVersion(); setSaveNotice('待办已保存，可在历史中查看和恢复'); }
+    catch (error) { setSaveError(true); logError('手动保存待办失败', error); }
+  };
+  useEffect(() => {
+    if (!saveNotice) return;
+    const timer = setTimeout(() => setSaveNotice(''), 4000);
+    return () => clearTimeout(timer);
+  }, [saveNotice]);
   const restoreVersion = async (version: ContentVersion) => {
     if (!(await flushSave())) throw new Error('Current content could not be saved');
     const store = storeRef.current;
@@ -179,7 +197,7 @@ export default function App() {
     restoringRef.current = true;
     if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null; }
     const current = { ...dataRef.current };
-    const restored = { ...current, tasks: version.content.tasks, dailyMemos: version.content.dailyMemos };
+    const restored = { ...current, ...restoreTaskContent(current, version.content) };
     const operation = saveQueue.current.catch(() => undefined).then(async () => {
       await archiveContent({ tasks: current.tasks, dailyMemos: current.dailyMemos }, 'before-restore');
       await saveData(store, restored);
@@ -188,14 +206,15 @@ export default function App() {
     try {
       await operation;
       dataRef.current = restored;
-      setTasks(restored.tasks); setDailyMemos(restored.dailyMemos); setFocusId(null); setSaveError(false);
+      setTasks(restored.tasks); setFocusId(null); setSaveError(false);
     } catch (error) { setSaveError(true); throw error; }
     finally { restoringRef.current = false; }
   };
 
   return <div className={`app font-${settings.fontSize}`} style={{ '--surface-alpha': settings.opacity / 100 } as CSSProperties}>
     <TitleBar onSettings={() => setSettingsOpen(true)} taskCount={tasks.filter((task) => !task.completed).length}
-      today={today} calendarOpen={settings.calendarOpen} onCalendar={toggleCalendar} onHistory={() => void openHistory()} onCloud={() => {setCloudSection('share');setCloudOpen(true);}} onPhone={() => {setCloudSection('phone');setCloudOpen(true);}} cloudError={!!cloud.status.error} disabled={!ready} />
+      today={today} calendarOpen={settings.calendarOpen} onCalendar={toggleCalendar} onSave={() => void saveFromMain()} saving={savingVersion} onHistory={() => void openHistory()} onCloud={() => {setCloudSection('share');setCloudOpen(true);}} onPhone={() => {setCloudSection('phone');setCloudOpen(true);}} cloudError={!!cloud.status.error} disabled={!ready} />
+    {saveNotice && <div className="save-notice" role="status">{saveNotice}</div>}
     {saveError && <div className="save-error" role="alert">本地保存失败。请检查磁盘空间或文件权限；下一次修改时会重试。</div>}
     {settings.calendarOpen ? <CalendarPanel today={today} memos={dailyMemos} marks={syncMarks} onChange={updateMemo} onClose={toggleCalendar} /> : <main className="matrix" aria-label="艾森豪威尔任务矩阵">
       {quadrants.map((quadrant) => <Quadrant key={quadrant} quadrant={quadrant} marks={syncMarks} tasks={tasks.filter((task) => task.quadrant === quadrant && (settings.showCompleted || !task.completed))} focusId={focusId} fontSize={settings.fontSize} onAdd={addTask} onChange={updateTask} onDelete={deleteTask} onMove={moveTask} />)}

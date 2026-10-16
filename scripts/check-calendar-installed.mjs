@@ -65,7 +65,7 @@ try {
   }
   await delay(700);
   if (process.argv.includes('--history')) {
-    await evaluate("document.querySelector('.history-button').click()");
+    await evaluate("document.querySelector('[aria-label=\"打开历史记录\"]').click()");
     await waitFor("document.querySelector('.history-version')");
     await evaluate("document.querySelector('.history-save').click()");
     await waitFor("document.querySelector('.history-message')?.textContent.includes('新版本')");

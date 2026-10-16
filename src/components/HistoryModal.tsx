@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { getVersion, historyReasonNames, listVersions, type ContentVersion, type VersionList } from '../contentHistory';
-import { memoPeriods, quadrantNames, quadrants } from '../types';
+import { quadrantNames, quadrants } from '../types';
+import { groupTaskVersions } from '../taskHistory';
 
-const timeFormatter = new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
-const periodNames = { morning: '早上', afternoon: '下午', evening: '晚上' };
+const timeFormatter = new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
 interface Props {
   onClose: () => void;
   onSaveVersion: () => Promise<void>;
@@ -47,8 +47,9 @@ export function HistoryModal({ onClose, onSaveVersion, onRestore }: Props) {
     setLoadingList(true);
     listVersions().then((result) => {
       if (!active) return;
-      setList(result);
-      setSelectedId((current) => result.versions.some((item) => item.id === current) ? current : result.versions[0]?.id ?? null);
+      const versions = groupTaskVersions(result.versions).flatMap(group => group.versions);
+      setList({...result, versions});
+      setSelectedId((current) => versions.some((item) => item.id === current) ? current : versions[0]?.id ?? null);
     }).catch((cause: unknown) => {
       if (import.meta.env.DEV) console.error('历史列表读取失败', cause);
       if (active) setError('无法读取历史记录。请检查文件权限后重试。');
@@ -73,41 +74,43 @@ export function HistoryModal({ onClose, onSaveVersion, onRestore }: Props) {
     catch (cause) { if (import.meta.env.DEV) console.error('历史操作失败', cause); setError('操作未完成，当前界面内容仍保留。请检查本地保存状态后重试。'); }
     finally { setBusy(false); }
   };
+  const completedCount = version?.content.tasks.filter(task => task.completed).length ?? 0;
+  const pendingCount = (version?.content.tasks.length ?? 0) - completedCount;
   return <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
     <div className="history-modal" role="dialog" aria-modal="true" aria-labelledby="history-title" tabIndex={-1} ref={dialog}>
       <header className="history-header">
-        <div><h2 id="history-title">历史记录</h2><p>任务与日期备忘录的内容版本</p></div>
+        <div><h2 id="history-title">待办历史</h2><p>按保存日期查看和恢复待办列表</p></div>
         <button type="button" className="history-close" aria-label="关闭历史记录" disabled={busy} onClick={onClose}>×</button>
       </header>
       <div className="history-toolbar"><span>修改后自动保留 · 历史记录不会自动删除</span>
-        <button type="button" className="history-save" disabled={busy} onClick={() => void perform(onSaveVersion, '当前内容已保存为一个新版本。')}>保存当前版本</button>
+        <button type="button" className="history-save" disabled={busy} onClick={() => void perform(onSaveVersion, '当前待办已保存为一个新版本。')}>保存当前待办</button>
       </div>
       <div className="history-main">
         <nav className="history-list" aria-label="选择历史版本" aria-busy={loadingList}>
           {loadingList && list.versions.length === 0 && <p className="history-empty">正在读取…</p>}
           {!loadingList && list.versions.length === 0 && <p className="history-empty">尚无历史记录</p>}
-          {list.versions.slice(0, visibleCount).map((item) => <button type="button" key={item.id} className="history-version" disabled={busy}
+          {groupTaskVersions(list.versions.slice(0, visibleCount)).map(group => <section className="history-day-group" key={group.date}>
+            <h3><time dateTime={group.date}>{group.date}</time></h3>
+            {group.versions.map((item) => <button type="button" key={item.id} className="history-version" disabled={busy}
             data-version-id={item.id} aria-pressed={selectedId === item.id} onClick={() => { setSelectedId(item.id); setError(''); setMessage(''); }}>
             <time dateTime={new Date(item.createdAt).toISOString()}>{timeFormatter.format(new Date(item.createdAt))}</time>
-            <span>{historyReasonNames[item.reason]}</span><small>{item.taskCount} 条任务 · {item.memoCount} 天备忘录</small>
+            <span>{historyReasonNames[item.reason]}</span><small>共 {item.taskCount} 项 · 待办 {item.pendingCount} · 已完成 {item.completedCount}</small>
           </button>)}
+          </section>)}
           {list.versions.length > visibleCount && <button type="button" className="history-more" disabled={busy} onClick={() => setVisibleCount((count) => count + 40)}>显示更早的版本</button>}
         </nav>
         <section className="history-preview" aria-label="历史内容预览" aria-busy={loadingVersion}>
           {loadingVersion && <p className="history-empty">正在载入内容…</p>}
           {version && <>
-            <p className="history-preview-caption">内容预览 · 恢复时会替换全部任务与日期备忘录</p>
+            <p className="history-preview-caption">待办预览 · 恢复仅替换待办列表（含已完成项）</p>
+            <div className="history-task-counts" aria-label="版本任务统计"><span>共 {version.content.tasks.length} 项</span><span>待办 {pendingCount}</span><span>已完成 {completedCount}</span></div>
             {quadrants.map((quadrant) => {
               const tasks = version.content.tasks.filter((task) => task.quadrant === quadrant);
               return tasks.length > 0 && <section className="history-preview-section" key={quadrant}><h3>{quadrantNames[quadrant]}</h3>
                 {tasks.map((task) => <p key={task.id} className={task.completed ? 'history-task completed' : 'history-task'}>{task.completed ? '✓ ' : '· '}{task.text || '（空白任务）'}</p>)}
               </section>;
             })}
-            {Object.entries(version.content.dailyMemos).sort(([a], [b]) => b.localeCompare(a)).map(([date, memo]) =>
-              <section className="history-preview-section" key={date}><h3>{date} 备忘录</h3>
-                {memoPeriods.filter((period) => memo[period]).map((period) => <div key={period} className="history-memo"><strong>{periodNames[period]}</strong><p>{memo[period]}</p></div>)}
-              </section>)}
-            {version.content.tasks.length === 0 && Object.keys(version.content.dailyMemos).length === 0 && <p className="history-empty">这个版本没有任务或备忘录。</p>}
+            {version.content.tasks.length === 0 && <p className="history-empty">这个版本没有待办。</p>}
           </>}
         </section>
       </div>
@@ -115,10 +118,10 @@ export function HistoryModal({ onClose, onSaveVersion, onRestore }: Props) {
         {list.unreadableCount > 0 && <p className="history-notice">{list.unreadableCount} 份历史文件无法读取，原文件已保留。</p>}
         {error && <p role="alert" className="history-error">{error}</p>}
         {message && <p role="status" className="history-message">{message}</p>}
-        {confirmRestore ? <div className="history-confirm"><p>确认恢复此版本？当前任务与全部日期备忘录将被替换，恢复前的内容会先另存为历史记录。</p>
+        {confirmRestore ? <div className="history-confirm"><p>确认恢复此版本的待办列表（含已完成项）？当前待办会先保存到历史；日期备忘录、设置和窗口状态保持不变。</p>
           <div><button type="button" className="history-cancel" disabled={busy} onClick={() => setConfirmRestore(false)}>取消</button>
             <button type="button" className="done-button history-confirm-button" disabled={busy || !version} onClick={() => version && void perform(() => onRestore(version), '已恢复。恢复前的内容也已保存，可再次恢复。')}>{busy ? '正在恢复…' : '确认恢复'}</button></div>
-        </div> : <div className="history-footer-actions"><span>恢复会保留当前设置和窗口位置</span><button type="button" className="done-button history-restore" disabled={busy || !version || loadingVersion} onClick={() => setConfirmRestore(true)}>恢复此版本</button></div>}
+        </div> : <div className="history-footer-actions"><span>只恢复待办，保留当前备忘录、设置和窗口位置</span><button type="button" className="done-button history-restore" disabled={busy || !version || loadingVersion} onClick={() => setConfirmRestore(true)}>恢复待办</button></div>}
       </footer>
     </div>
   </div>;

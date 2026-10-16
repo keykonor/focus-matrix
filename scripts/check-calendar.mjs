@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
 const browser = spawn('C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe', [
-  '--headless=new', '--disable-gpu', '--no-first-run', '--disable-extensions',
+  '--headless=new', '--disable-gpu', '--no-first-run', '--disable-extensions', '--no-proxy-server',
   '--remote-debugging-port=9239', `--user-data-dir=${join(process.cwd(), '.edge-calendar-check')}`, 'about:blank',
 ], { stdio: 'ignore', windowsHide: true });
 let socket;
@@ -23,7 +23,7 @@ const evaluate = async (expression) => {
   return response.result.value;
 };
 const waitFor = async (expression, label) => {
-  for (let attempt = 0; attempt < 50; attempt++) {
+  for (let attempt = 0; attempt < 150; attempt++) {
     if (await evaluate(`Boolean(${expression})`)) return;
     await delay(100);
   }
@@ -166,11 +166,19 @@ try {
   assert.deepEqual(errors, [], 'browser errors');
   console.log('closed state and existing tasks preserved: ok');
 
+  await evaluate("document.querySelector('.task-item input[type=checkbox]').click()");
+  await delay(600);
   const baseline = await saved();
+  assert.equal(baseline.tasks[0].completed, true);
+  await evaluate("document.querySelector('.save-version-button').click()");
+  await waitFor("document.querySelector('.save-notice')?.textContent.includes('待办已保存')", 'main save confirmation');
+  const manualCount = await evaluate("JSON.parse(sessionStorage.getItem('content-check-history')).filter(v => v.reason === 'manual').length");
+  await evaluate("document.querySelector('.save-version-button').click()");
+  await waitFor(`JSON.parse(sessionStorage.getItem('content-check-history')).filter(v => v.reason === 'manual').length === ${manualCount + 1}`, 'repeated explicit save keeps a separate version');
   const openHistory = async () => {
-    await evaluate("document.querySelector('.history-button').click()");
+    await evaluate("document.querySelector('[aria-label=\"打开历史记录\"]').click()");
     await waitFor("document.querySelector('.history-version')", 'history list');
-    await waitFor("document.querySelector('.history-preview-section')", 'history preview');
+    await waitFor("document.querySelector('.history-task-counts')", 'history preview');
   };
   const selectVersion = async (id) => {
     await evaluate(`document.querySelector('[data-version-id="${id}"]').click()`);
@@ -183,6 +191,14 @@ try {
     await waitFor("document.querySelector('.history-message')?.textContent.includes('已恢复')", 'successful restore');
   };
   await openHistory();
+  const mainSavedId = await evaluate("JSON.parse(sessionStorage.getItem('content-check-history')).filter(v => v.reason === 'manual').at(-1).id");
+  await selectVersion(mainSavedId);
+  assert.ok(await evaluate("document.querySelector('.history-day-group h3 time').dateTime.match(/^\\d{4}-\\d{2}-\\d{2}$/)"));
+  const firstCounts = await evaluate(`document.querySelector('[data-version-id="${mainSavedId}"] small').textContent`);
+  assert.ok(firstCounts.includes('共 1 项 · 待办 0 · 已完成 1'), firstCounts);
+  assert.ok(await evaluate("document.querySelector('.history-task-counts').textContent.includes('已完成 1')"));
+  assert.equal(await evaluate("document.querySelector('.history-preview').textContent.includes('备忘录')"), false);
+  console.log('main save, repeated independent versions, dated groups, pending/completed counts and task-only preview: ok');
   await evaluate("document.querySelector('.history-save').click()");
   await waitFor("document.querySelector('.history-message')?.textContent.includes('新版本')", 'manual snapshot');
   const manualId = await evaluate("JSON.parse(sessionStorage.getItem('content-check-history')).filter(v => v.reason === 'manual').at(-1).id");
@@ -213,7 +229,7 @@ try {
   await restoreSelected();
   let restored = await saved();
   assert.deepEqual(restored.tasks, baseline.tasks);
-  assert.deepEqual(restored.dailyMemos, baseline.dailyMemos);
+  assert.deepEqual(restored.dailyMemos, changed.dailyMemos);
   assert.deepEqual(restored.settings, changed.settings);
   const beforeRestore = await evaluate("JSON.parse(sessionStorage.getItem('content-check-history')).filter(v => v.reason === 'before-restore').at(-1)");
   assert.deepEqual(beforeRestore.content.tasks, changed.tasks);
@@ -229,9 +245,9 @@ try {
   await evaluate("document.querySelector('.history-close').click()");
   await send('Page.reload');
   await waitFor("document.querySelector('.task-text')?.value === '更新前已有的任务'", 'restored task after restart');
-  assert.deepEqual((await saved()).dailyMemos, baseline.dailyMemos);
+  assert.deepEqual((await saved()).dailyMemos, changed.dailyMemos);
   assert.equal('history' in (await saved()), false);
-  console.log('manual versions, deleted task recovery, memo recovery, cancel and undo restoration, restart: ok');
+  console.log('manual versions, deleted task recovery, current memos preserved, cancel and undo restoration, restart: ok');
   await openHistory();
   await selectVersion(manualId);
   for (const [width, height] of [[720, 480], [520, 360], [1200, 760]]) {

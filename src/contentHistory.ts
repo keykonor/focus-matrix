@@ -8,6 +8,8 @@ export interface VersionSummary {
   createdAt: number;
   reason: HistoryReason;
   taskCount: number;
+  pendingCount: number;
+  completedCount: number;
   memoCount: number;
 }
 export interface ContentVersion {

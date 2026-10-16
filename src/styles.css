@@ -40,6 +40,8 @@ button { cursor: pointer; }
 .history-button { display: flex; align-items: center; gap: 4px; padding: 5px 4px; border: 0; border-radius: 3px; background: transparent; color: #6d9580; font-size: 11px; white-space: nowrap; }
 .history-button:hover { background: rgba(76,130,95,.10); color: #376f4a; }
 .history-button:disabled { opacity: .5; cursor: default; }
+.save-version-button { min-width: 51px; }
+.save-notice { position: absolute; z-index: 60; top: 42px; right: 12px; max-width: calc(100% - 24px); padding: 9px 12px; border: 1px solid #c9decf; border-radius: 5px; background: #f4fbf4; color: #38644b; box-shadow: 0 3px 12px #304c3b12; font-size: 12px; pointer-events: none; }
 .task-count { color: #93aa9a; font-size: 11px; white-space: nowrap; }
 .cloud-pending { color: #9a875c; }
 .cloud-description,.cloud-footnote,.cloud-status,.cloud-confirm p { font-size: 12px; line-height: 1.8; color: #718e7b; }
@@ -246,6 +248,10 @@ button { cursor: pointer; }
 .history-version time { font-size: 11px; font-weight: 600; }
 .history-version span { font-size: 11px; }
 .history-version small { font-size: 10px; color: #91a597; }
+.history-day-group h3 { position: sticky; top: -8px; z-index: 1; margin: 0; padding: 10px 8px 7px; background: #f9fcf8; color: #526f5d; font-size: 12px; font-weight: 600; }
+.history-task-counts { display: flex; flex-wrap: wrap; gap: 7px; margin: 0 0 18px; color: #52745e; font-size: 11px; }
+.history-task-counts span { padding: 5px 8px; border-radius: 4px; background: #eaf3eb; }
+.history-footer-actions > span { line-height: 1.5; }
 .history-preview { min-width: 0; min-height: 0; overflow: auto; padding: 12px 5px 12px 18px; border-left: 1px solid #e3ece3; scrollbar-width: thin; scrollbar-color: #bdcfc2 transparent; }
 .history-preview-caption, .history-empty { margin: 0 0 15px; color: #8ba294; font-size: 11px; line-height: 1.6; }
 .history-preview-section { margin: 0 0 22px; }

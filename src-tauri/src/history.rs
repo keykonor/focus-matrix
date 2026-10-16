@@ -61,11 +61,11 @@ pub struct Version {
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Summary { id: String, created_at: u64, reason: Reason, task_count: usize, memo_count: usize }
+pub struct Summary { id: String, created_at: u64, reason: Reason, task_count: usize, pending_count: usize, completed_count: usize, memo_count: usize }
 impl Version {
     fn summary(&self) -> Summary {
         Summary { id: self.id.clone(), created_at: self.created_at, reason: self.reason,
-            task_count: self.content.tasks.len(), memo_count: self.content.daily_memos.values()
+            task_count: self.content.tasks.len(), pending_count: self.content.tasks.iter().filter(|t| !t.completed).count(), completed_count: self.content.tasks.iter().filter(|t| t.completed).count(), memo_count: self.content.daily_memos.values()
                 .filter(|m| !m.morning.trim().is_empty() || !m.afternoon.trim().is_empty() || !m.evening.trim().is_empty()).count() }
     }
 }
@@ -214,6 +214,16 @@ mod tests {
         fs::write(root.join("focus-matrix.json"), b"{bad").unwrap();
         assert!(save(&root, &mut None, content("不要覆盖"), Reason::Automatic).is_err());
         assert_eq!(fs::read(root.join("focus-matrix.json")).unwrap(), b"{bad");
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn legacy_task_counts_are_computed_without_rewriting_saved_content() {
+        let root = temp_root(); let folder = root.join("backups").join("20261006-old"); fs::create_dir_all(&folder).unwrap();
+        let mut original = content("待办"); let mut completed = original.tasks[0].clone(); completed.id = "done".into(); completed.completed = true; original.tasks.push(completed);
+        let bytes = serde_json::to_vec(&original).unwrap(); let path = folder.join("focus-matrix.json"); fs::write(&path, &bytes).unwrap();
+        let result = list(&root).unwrap(); let summary = &result.versions[0];
+        assert_eq!(summary.task_count, 2); assert_eq!(summary.pending_count, 1); assert_eq!(summary.completed_count, 1);
+        assert_eq!(fs::read(&path).unwrap(), bytes);
         fs::remove_dir_all(root).unwrap();
     }
     #[test]

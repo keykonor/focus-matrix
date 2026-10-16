@@ -25,7 +25,7 @@ try{
  assert.deepEqual(after.phoneConnection.devices,before.phoneConnection.devices);assert.deepEqual(after.phoneConnection.pairing,before.phoneConnection.pairing);
  assert.equal(after.enabled,before.enabled);assert.equal(after.shareUrl,before.shareUrl);
  await evaluate(`document.querySelector('.phone-button').click()`);await wait(`document.querySelector('.cloud-status')?.textContent.includes('云端连接正常')`);
- await evaluate(`document.querySelector('.modal-header button').click();document.querySelector('.history-button').click()`);
+ await evaluate(`document.querySelector('.modal-header button').click();document.querySelector('[aria-label="打开历史记录"]').click()`);
  await wait(`document.querySelector('.history-modal')`);await evaluate(`document.querySelector('.history-close').click()`);
  assert.equal(await evaluate(`document.querySelectorAll('.quadrant').length`),4);
  const current=await read(join(directory,'focus-matrix.json')),prior=await read(join(backup,'focus-matrix.json'));

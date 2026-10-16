@@ -47,6 +47,8 @@ mockIPC((command, payload) => {
   }
   if (command === 'list_content_versions') return { versions: [...versions].reverse().map((version) => ({ ...version,
     taskCount: version.content.tasks.length,
+    pendingCount: version.content.tasks.filter(task => !task.completed).length,
+    completedCount: version.content.tasks.filter(task => task.completed).length,
     memoCount: Object.values(version.content.dailyMemos).filter((memo) => memo.morning.trim() || memo.afternoon.trim() || memo.evening.trim()).length,
     content: undefined,
   })), unreadableCount: 0 };
