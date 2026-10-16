@@ -177,6 +177,29 @@ try {
   await writeFile('outputs/completed-tasks-check.png', Buffer.from(screenshot.data, 'base64'));
   assert.deepEqual(errors, []);
   console.log('large font, multiline content and 520/720/1200 layouts: OK');
+  // Updating an application must restore exactly, even when its stored day is old.
+  const updateSnapshot = { ...(await data()), taskDay: '2026-10-20',
+    tasks: [task('更新前已完成', true), task('更新前待办', false)],
+    futureState: { untouched: 'keep future state' } };
+  updateSnapshot.settings.futureSetting = 'keep unknown setting';
+  updateSnapshot.dailyMemos['2026-10-16'].futureMemo = 'keep unknown memo field';
+  await evaluate(`sessionStorage.setItem('calendar-check-data', ${JSON.stringify(JSON.stringify(updateSnapshot))});
+    sessionStorage.setItem('update-check-guard', '2026-10-21'); sessionStorage.setItem('update-check-nonce', 'test-update-nonce');`);
+  await send('Page.reload');
+  await wait("document.querySelector('.completed-button')?.disabled === false && sessionStorage.getItem('update-check-verified') === '1'");
+  await delay(600);
+  assert.deepEqual(await data(), updateSnapshot, 'Updating unexpectedly changed the saved full snapshot');
+  await evaluate("window.dispatchEvent(new Event('focus'))");
+  await delay(100);
+  assert.deepEqual(await data(), updateSnapshot, 'Wake after update unexpectedly archived tasks');
+  await evaluate("window.setTestDay('2026-10-22T00:01:00+08:00')");
+  await wait("JSON.parse(sessionStorage.getItem('calendar-check-data')).tasks.length === 1");
+  const nextDay = await data();
+  assert.deepEqual(nextDay.settings, updateSnapshot.settings);
+  assert.deepEqual(nextDay.dailyMemos, updateSnapshot.dailyMemos);
+  assert.deepEqual(nextDay.futureState, updateSnapshot.futureState);
+  assert.deepEqual(nextDay.tasks, [updateSnapshot.tasks[1]]);
+  console.log('update restores exact full snapshot without rollover; next-day archive changes only its task: OK');
 } finally {
   if (socket?.readyState === WebSocket.OPEN) { await send('Browser.close').catch(() => {}); socket.close(); }
   browser.kill(); await new Promise(resolve => server.close(resolve));

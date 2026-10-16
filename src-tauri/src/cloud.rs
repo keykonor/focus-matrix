@@ -39,6 +39,7 @@ fn http_error(code:u16)->String{match code{
  401=>"云端拒绝了同步凭据（HTTP 401），请核对原账户配置；手机绑定仍保留".into(),
  403=>"云端托管入口或权限拒绝了请求（HTTP 403），内容和手机绑定仍保留".into(),
  404=>"云端 API 地址或路由不存在（HTTP 404），请检查服务部署；本地内容仍保留".into(),
+ 410=>"腾讯云函数已暂停服务（HTTP 410），请检查腾讯云账户余额和函数可用状态；本地内容和手机绑定仍保留".into(),
  500..=599=>format!("云端服务暂不可用（HTTP {code}），稍后自动重试；手机绑定仍保留"),
  _=>format!("云端请求失败（HTTP {code}），本地内容和手机绑定仍保留")
 }}
@@ -86,6 +87,7 @@ async fn synchronize(app:&tauri::AppHandle,config:&mut Config,runtime:&mut Runti
  #[test]fn errors_distinguish_credentials_routes_and_service_failure(){
   assert!(http_error(401).contains("凭据"));assert!(http_error(403).contains("权限"));
   assert!(http_error(404).contains("路由"));assert!(http_error(503).contains("服务暂不可用"));
+  assert!(http_error(410).contains("余额"));assert!(http_error(410).contains("手机绑定仍保留"));
  }
  #[test]fn public_status_never_exposes_write_credentials_or_pending_requests(){
   let config:Config=serde_json::from_value(json!({"writerKey":"private-key","viewToken":"same","enabled":false,"lastSyncedAt":123,"pending":{"secret":"pending-content"}})).unwrap();

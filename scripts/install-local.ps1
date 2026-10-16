@@ -5,6 +5,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'update-data-functions.ps1')
 
 function Get-Sha256([string]$filePath) {
     $stream = [System.IO.File]::OpenRead($filePath)
@@ -30,10 +31,13 @@ if ((Test-Path -LiteralPath $installedExecutable -PathType Leaf) -and
     throw 'Existing installation has no data file. Update stopped to protect previous content.'
 }
 
-# WM_CLOSE lets the running React app flush its pending save before the backup.
+# WM_CLOSE carries a nonce-backed update request. No fixed delay or forced
+# shutdown is allowed: the app saves without rollover, acknowledges and exits.
+$updateNonce = [guid]::NewGuid().ToString('N')
 $running = @(Get-CimInstance Win32_Process -Filter "name = 'FocusMatrix.exe' or name = 'Focus Matrix.exe'" |
     Where-Object { $_.ExecutablePath -eq $installedExecutable -or $_.ExecutablePath -eq $legacyExecutable })
 if ($running.Count -gt 0) {
+    Write-AtomicJson (Join-Path $dataDirectory '.update-request.json') @{ nonce=$updateNonce; protocol=2 }
     Add-Type -TypeDefinition @'
 using System;
 using System.Text;
@@ -64,7 +68,16 @@ public static class FocusMatrixUpdateWindow {
 }
 '@
     foreach ($process in $running) { [FocusMatrixUpdateWindow]::FlushBeforeUpdate([uint32]$process.ProcessId) }
-    Start-Sleep -Milliseconds 1200
+    $deadline = [DateTime]::UtcNow.AddSeconds(60)
+    while (@($running | Where-Object { Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue }).Count -gt 0 -and [DateTime]::UtcNow -lt $deadline) {
+        Start-Sleep -Milliseconds 200
+    }
+    $ackPath = Join-Path $dataDirectory '.update-ready.json'
+    $ack = if (Test-Path -LiteralPath $ackPath) { Get-Content -LiteralPath $ackPath -Raw | ConvertFrom-Json } else { $null }
+    if (@($running | Where-Object { Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue }).Count -gt 0 -or $null -eq $ack -or $ack.nonce -ne $updateNonce -or $ack.protocol -ne 2 -or -not (@($running.ProcessId) -contains $ack.pid)) {
+        Write-AtomicJson (Join-Path $dataDirectory '.update-request.json') @{ nonce=$updateNonce; cancelled=$true }
+        throw 'No confirmed save-and-exit acknowledgement. Update stopped without killing the app. For an older version, save and exit from the tray, then retry.'
+    }
 }
 
 # A failed copy or hash check throws here and prevents the executable update.
@@ -73,12 +86,7 @@ if (-not (Test-Path -LiteralPath (Join-Path $backupDirectory 'manifest.json'))) 
     throw 'Backup manifest is missing. Update stopped.'
 }
 
-foreach ($process in $running) {
-    if (Get-Process -Id $process.ProcessId -ErrorAction SilentlyContinue) {
-        Stop-Process -Id $process.ProcessId -Force -ErrorAction Stop
-    }
-}
-foreach ($name in @('focus-matrix.json', '.window-state.json', '.cloud-config.bin')) {
+foreach ($name in @('focus-matrix.json', '.window-state.json', '.cloud-config.bin', '.cloud-config.previous.bin')) {
     $saved = Join-Path $backupDirectory $name
     if (-not (Test-Path -LiteralPath $saved -PathType Leaf)) { continue }
     $live = Join-Path $dataDirectory $name
@@ -87,13 +95,50 @@ foreach ($name in @('focus-matrix.json', '.window-state.json', '.cloud-config.bi
         throw "User data changed after backup. Update stopped: $name"
     }
 }
-New-Item -ItemType Directory -Path $installedDirectory -Force | Out-Null
-Copy-Item -LiteralPath $source -Destination $installedExecutable -Force -ErrorAction Stop
-if ((Get-Sha256 $source) -ne (Get-Sha256 $installedExecutable)) {
-    throw 'Installed executable checksum mismatch. Restore from backup.'
-}
-if (Test-Path -LiteralPath $legacyExecutable -PathType Leaf) {
-    Copy-Item -LiteralPath $source -Destination $legacyExecutable -Force -ErrorAction Stop
+$null = Read-VerifiedUpdateBackup $backupDirectory $dataDirectory
+$newProcess = $null
+try {
+    New-Item -ItemType Directory -Path $installedDirectory -Force | Out-Null
+    Write-AtomicBytes $installedExecutable ([IO.File]::ReadAllBytes($source))
+    if ((Get-Sha256 $source) -ne (Get-Sha256 $installedExecutable)) { throw 'Installed executable checksum mismatch.' }
+    # Restore the entire exact current snapshot; never merge an older task list
+    # over it, or initialize defaults after an update.
+    Restore-UpdateSnapshot $backupDirectory $dataDirectory
+    Write-AtomicJson (Join-Path $dataDirectory '.update-session.json') @{
+        nonce=$updateNonce; phase='restoring'; backupName=(Split-Path -Leaf $backupDirectory); guardDate=(Get-Date -Format 'yyyy-MM-dd')
+    }
+    if (Test-Path -LiteralPath $legacyExecutable -PathType Leaf) { Write-AtomicBytes $legacyExecutable ([IO.File]::ReadAllBytes($source)) }
+    $newProcess = Start-Process -FilePath $installedExecutable -WindowStyle Hidden -PassThru
+    $deadline = [DateTime]::UtcNow.AddSeconds(60)
+    $verified = $false
+    while ([DateTime]::UtcNow -lt $deadline) {
+        $receiptPath = Join-Path $dataDirectory '.update-restored.json'
+        if (Test-Path -LiteralPath $receiptPath) {
+            $receipt = Get-Content -LiteralPath $receiptPath -Raw | ConvertFrom-Json
+            $session = Get-Content -LiteralPath (Join-Path $dataDirectory '.update-session.json') -Raw | ConvertFrom-Json
+            if ($receipt.nonce -eq $updateNonce -and $receipt.verified -and $receipt.pid -eq $newProcess.Id -and $session.phase -eq 'verified' -and $session.nonce -eq $updateNonce) { $verified=$true; break }
+        }
+        if ($newProcess.HasExited) { break }
+        Start-Sleep -Milliseconds 200
+    }
+    if (-not $verified) { throw 'New app did not verify the complete saved snapshot. Rolling back.' }
+} catch {
+    $failure = $_
+    # Only stop our unverified startup process, whose editing UI is still locked.
+    if ($null -ne $newProcess -and -not $newProcess.HasExited) { Stop-Process -Id $newProcess.Id -Force -ErrorAction Stop }
+    $failedDirectory = Join-Path $backupDirectory ('failed-startup-' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $failedDirectory | Out-Null
+    if (Test-Path -LiteralPath $dataFile) { Copy-Item -LiteralPath $dataFile -Destination (Join-Path $failedDirectory 'focus-matrix.json') }
+    Restore-UpdateSnapshot $backupDirectory $dataDirectory
+    $oldExe = Join-Path $backupDirectory 'FocusMatrix.exe'
+    if (Test-Path -LiteralPath $oldExe) { Write-AtomicBytes $installedExecutable ([IO.File]::ReadAllBytes($oldExe)) }
+    $oldLegacyExe = Join-Path $backupDirectory 'Focus Matrix.exe'
+    if (Test-Path -LiteralPath $oldLegacyExe) { Write-AtomicBytes $legacyExecutable ([IO.File]::ReadAllBytes($oldLegacyExe)) }
+    Write-AtomicJson (Join-Path $dataDirectory '.update-session.json') @{
+        nonce=$updateNonce; phase='rolled-back'; backupName=(Split-Path -Leaf $backupDirectory); guardDate=(Get-Date -Format 'yyyy-MM-dd')
+    }
+    if (Test-Path -LiteralPath $oldExe) { Start-Process -FilePath $installedExecutable -WindowStyle Hidden | Out-Null }
+    throw $failure
 }
 
 $shortcutPath = Join-Path $env:USERPROFILE 'Desktop\Focus Matrix.lnk'
@@ -112,8 +157,6 @@ if ($autostartEntry) {
     Set-ItemProperty -Path $runKey -Name 'Focus Matrix' -Value "$installedExecutable --autostart"
 }
 
-if ($running.Count -gt 0) {
-    Start-Process -FilePath $installedExecutable -WindowStyle Normal | Out-Null
-}
+Write-Output 'snapshot=verified-before-editing; current-version-restored; rollback-enabled'
 Write-Output "backup=$backupDirectory"
 Write-Output "installed=$installedExecutable"

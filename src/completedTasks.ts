@@ -27,7 +27,7 @@ export function parseCompletedTasks(value: unknown): CompletedTaskRecord[] {
       typeof record.archivedDate !== 'string' || !isDateKey(record.archivedDate)) {
       throw new Error('已完成仓库记录损坏，停止保存以保护原内容');
     }
-    return { id: record.id, task, archivedAt: record.archivedAt, archivedDate: record.archivedDate };
+    return { ...item, id: record.id, task, archivedAt: record.archivedAt, archivedDate: record.archivedDate };
   });
 }
 
@@ -45,11 +45,11 @@ export function rolloverCompletedTasks<T extends TaskDayData>(data: T, today: st
   const tasks = data.tasks.filter(task => {
     if (!task.completed) return true;
     const changed = new Date(task.updatedAt);
-    // Keep completions made after midnight. Legacy data without a day marker
-    // only moves dated older completions, avoiding premature removal.
-    const due = Number.isFinite(changed.getTime())
+    // Keep new-day completions. Legacy data first establishes its day without
+    // archiving: installing an update is not itself a calendar transition.
+    const due = Boolean(previousDay && previousDay < today) && (Number.isFinite(changed.getTime())
       ? localDateKey(changed) < today
-      : Boolean(previousDay && previousDay < today);
+      : true);
     if (!due) return true;
     const key = fingerprint(task);
     if (!existing.has(key)) {

@@ -22,6 +22,28 @@ const record = (content: import('../src/contentHistory').HistoryContent, reason:
 };
 mockWindows('main');
 mockIPC((command, payload) => {
+  if (command === 'read_local_data') return { data: structuredClone(store), guardDate: sessionStorage.getItem('update-check-guard'), updateNonce: sessionStorage.getItem('update-check-nonce') };
+  if (command === 'ack_update_restore') { sessionStorage.setItem('update-check-verified', '1'); sessionStorage.removeItem('update-check-nonce'); return; }
+  if (command === 'read_update_request') return sessionStorage.getItem('update-check-request');
+  if (command === 'finish_update_prepare') { sessionStorage.setItem('update-check-ready', String(payload?.nonce)); return; }
+  if (command === 'quit_app') { sessionStorage.setItem('update-check-quit', '1'); return; }
+  if (command === 'commit_local_data') {
+    if (sessionStorage.getItem('history-check-store-fail') === '1') { sessionStorage.removeItem('history-check-store-fail'); throw new Error('Simulated atomic data write failure'); }
+    const next = structuredClone(store);
+    const patch = payload?.patch as Record<string, unknown>;
+    for (const [key, value] of Object.entries(patch)) {
+      if (key === 'settings') next[key] = { ...(next[key] as object), ...(value as object) };
+      else if (key === 'dailyMemos') {
+        const memos = { ...(next[key] as Record<string, unknown> ?? {}) };
+        for (const [date, memo] of Object.entries(value as Record<string, unknown>)) {
+          if (memo === null) delete memos[date]; else memos[date] = { ...(memos[date] as object), ...(memo as object) };
+        }
+        next[key] = memos;
+      } else next[key] = value;
+    }
+    sessionStorage.setItem('calendar-check-data', JSON.stringify(next));
+    Object.assign(store, next); return;
+  }
   if(command==='ack_cloud_applied'){sessionStorage.removeItem('cloud-check-delivery');sessionStorage.setItem('cloud-check-ack','1');}
   if (['get_cloud_status', 'sync_cloud', 'set_cloud_sharing', 'rotate_cloud_link','set_share_editing','ack_cloud_applied'].includes(command)) return {
     delivery:JSON.parse(sessionStorage.getItem('cloud-check-delivery')??'null'),editingEnabled:true,configured: true, enabled: command === 'set_cloud_sharing' ? Boolean(payload?.enabled) : false,

@@ -34,13 +34,13 @@ describe('completed task repository', () => {
     expect(repeated.tasks.map(item => item.id)).toEqual(['pending']);
     expect(rolloverCompletedTasks(first, '2026-10-16', now)).toBe(first);
   });
-  it('initializes legacy data without dropping recent or undated completions', () => {
+  it('initializes legacy data without treating an upgrade as a date change', () => {
     const result = rolloverCompletedTasks({ tasks: [task('old'), task('today', true, '2026-10-16T01:00:00+08:00'), task('unknown', true, '')] }, '2026-10-16', now);
-    expect(result.tasks.map(item => item.id)).toEqual(['today', 'unknown']);
-    expect(result.completedTasks?.[0].task.id).toBe('old');
+    expect(result.tasks.map(item => item.id)).toEqual(['old', 'today', 'unknown']);
+    expect(result.completedTasks).toEqual([]);
   });
   it('keeps exact task text and can read the saved archive after restart', () => {
-    const result = rolloverCompletedTasks({ tasks: [task('多行长内容')] }, '2026-10-16', now);
+    const result = rolloverCompletedTasks({ tasks: [task('多行长内容')], taskDay: '2026-10-15' }, '2026-10-16', now);
     expect(parseCompletedTasks(JSON.parse(JSON.stringify(result.completedTasks)))).toEqual(result.completedTasks);
     expect(parseCompletedTasks(undefined)).toEqual([]);
     expect(() => parseCompletedTasks({ broken: true })).toThrow();

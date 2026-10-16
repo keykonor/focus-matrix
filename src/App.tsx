@@ -4,7 +4,6 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { disable, enable, isEnabled } from '@tauri-apps/plugin-autostart';
 import { saveWindowState, StateFlags } from '@tauri-apps/plugin-window-state';
-import type { Store } from '@tauri-apps/plugin-store';
 import { Quadrant } from './components/Quadrant';
 import { SettingsModal } from './components/SettingsModal';
 import { TitleBar } from './components/TitleBar';
@@ -20,7 +19,7 @@ import { restoreTaskContent } from './taskHistory';
 import { changeMemo, localDateKey } from './calendarModel';
 import { useToday } from './hooks/useToday';
 import { changeTask, newTask } from './taskModel';
-import { openDataStore, saveData, type AppData } from './storage';
+import { openDataStore, saveData, type AppData, type LocalDataStore } from './storage';
 import { defaultSettings, quadrants, type AppSettings, type DailyMemos, type MemoPeriod, type QuadrantType, type Task } from './types';
 
 const windowHandle = getCurrentWindow();
@@ -48,8 +47,11 @@ export default function App() {
   const [saveError, setSaveError] = useState(false);
   const [savingVersion, setSavingVersion] = useState(false);
   const [saveNotice, setSaveNotice] = useState('');
+  const [updating, setUpdating] = useState(false);
   const savingVersionRef = useRef(false);
-  const storeRef = useRef<Store | null>(null);
+  const storeRef = useRef<LocalDataStore | null>(null);
+  const updatingRef = useRef(false);
+  const rolloverGuard = useRef<string | null>(null);
   const dataRef = useRef<AppData>({ tasks, settings, dailyMemos, syncMarks, completedTasks, taskDay });
   const saveQueue = useRef<Promise<void>>(Promise.resolve());
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -57,13 +59,13 @@ export default function App() {
   const restoringRef = useRef(false);
   dataRef.current = { tasks, settings, dailyMemos, syncMarks, completedTasks, taskDay };
 
-  const flushSave = useCallback(async () => {
-    if (restoringRef.current) return false;
+  const flushSave = useCallback(async (forUpdate = false) => {
+    if (restoringRef.current || (updatingRef.current && !forUpdate)) return false;
     if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null; }
     const store = storeRef.current;
     if (!store) return false;
     const current = dataRef.current;
-    const snapshot = rolloverCompletedTasks(current, localDateKey());
+    const snapshot = forUpdate || rolloverGuard.current === localDateKey() ? current : rolloverCompletedTasks(current, localDateKey());
     const rollingOver = snapshot !== current;
     if (rollingOver) restoringRef.current = true;
     const next = saveQueue.current.catch(() => undefined).then(() => saveData(store, snapshot));
@@ -97,13 +99,14 @@ export default function App() {
       dataRef.current=next;setTasks(next.tasks);setDailyMemos(next.dailyMemos);setSyncMarks(next.syncMarks);setSaveError(false);
     }catch(error){setSaveError(true);throw error;}finally{restoringRef.current=false;}
   },[flushSave]);
-  const cloud=useCloudSharing(ready,{flush:flushSave,read:readContent,apply:applyCloud});
+  const cloud=useCloudSharing(ready && !updating,{flush:flushSave,read:readContent,apply:applyCloud});
 
   useEffect(() => {
     let active = true;
-    openDataStore().then(({ store, data }) => {
+    openDataStore().then(({ store, data, guardDate }) => {
       if (!active) return;
       storeRef.current = store;
+      rolloverGuard.current = guardDate;
       setTasks(data.tasks);
       setSettings(data.settings);
       setDailyMemos(data.dailyMemos);
@@ -111,7 +114,7 @@ export default function App() {
       setCompletedTasks(data.completedTasks ?? []);
       setTaskDay(data.taskDay ?? '');
       setReady(true);
-    }).catch((error) => { logError('无法打开本地数据', error); if (active) { setSaveError(true); setReady(true); } });
+    }).catch((error) => { logError('无法打开本地数据', error); if (active) setSaveError(true); });
     return () => { active = false; };
   }, []);
 
@@ -126,7 +129,7 @@ export default function App() {
     if (!ready) return;
     const checkDay = () => {
       const day = dataRef.current.taskDay;
-      if (!day || day < localDateKey()) void flushSave();
+      if (rolloverGuard.current !== localDateKey() && (!day || day < localDateKey())) void flushSave();
     };
     checkDay();
     // Also retry failed writes, and recheck when a sleeping/hidden app wakes up.
@@ -159,6 +162,21 @@ export default function App() {
         event.preventDefault();
         if (closingRef.current) return;
         closingRef.current = true;
+        try {
+          const nonce = await invoke<string | null>('read_update_request');
+          if (nonce) {
+            updatingRef.current = true; setUpdating(true);
+            if (!(await flushSave(true))) throw new Error('更新前保存失败');
+            await archiveContent(readContent(), 'update-backup');
+            await saveWindowState(windowStateFlags);
+            await invoke('finish_update_prepare', { nonce });
+            await invoke('quit_app');
+            return;
+          }
+        } catch (error) {
+          updatingRef.current = false; setUpdating(false); closingRef.current = false;
+          setSaveError(true); logError('更新准备失败，已停止更新', error); return;
+        }
         if (!(await flushSave())) { closingRef.current = false; return; }
         if (dataRef.current.settings.closeBehavior === 'quit') {
           await saveWindowState(windowStateFlags).catch((error) => logError('保存窗口状态失败', error));
@@ -187,10 +205,10 @@ export default function App() {
     };
     void register().catch((error) => logError('窗口事件注册失败', error));
     return () => { disposed = true; unlisteners.forEach((fn) => fn()); };
-  }, [ready, flushSave]);
+  }, [ready, flushSave, readContent]);
 
   const addTask = (quadrant: QuadrantType, afterId?: string) => {
-    if(restoringRef.current)return;
+    if(restoringRef.current || updatingRef.current)return;
     const task = newTask(quadrant);
     setTasks((current) => {
       const index = afterId ? current.findIndex((item) => item.id === afterId) : -1;
@@ -199,12 +217,12 @@ export default function App() {
     });
     setFocusId(task.id);
   };
-  const updateTask = (id: string, patch: Partial<Pick<Task, 'text' | 'completed'>>) => {if(!restoringRef.current)setTasks((current) => current.map((task) => task.id === id ? changeTask(task, patch) : task));};
-  const deleteTask = (id: string) => {if(!restoringRef.current)setTasks((current) => current.filter((task) => task.id !== id));};
-  const moveTask = (id: string, quadrant: QuadrantType) => {if(!restoringRef.current)setTasks((current) => current.map((task) => task.id === id && task.quadrant !== quadrant ? changeTask(task, { quadrant }) : task));};
-  const onSettingsChange = (next: AppSettings) => {if(!restoringRef.current)setSettings(next);};
-  const updateMemo = (date: string, period: MemoPeriod, text: string) => {if(!restoringRef.current)setDailyMemos((current) => changeMemo(current, date, period, text));};
-  const toggleCalendar = () => {if(!restoringRef.current)setSettings((current) => ({ ...current, calendarOpen: !current.calendarOpen }));};
+  const updateTask = (id: string, patch: Partial<Pick<Task, 'text' | 'completed'>>) => {if(!restoringRef.current && !updatingRef.current)setTasks((current) => current.map((task) => task.id === id ? changeTask(task, patch) : task));};
+  const deleteTask = (id: string) => {if(!restoringRef.current && !updatingRef.current)setTasks((current) => current.filter((task) => task.id !== id));};
+  const moveTask = (id: string, quadrant: QuadrantType) => {if(!restoringRef.current && !updatingRef.current)setTasks((current) => current.map((task) => task.id === id && task.quadrant !== quadrant ? changeTask(task, { quadrant }) : task));};
+  const onSettingsChange = (next: AppSettings) => {if(!restoringRef.current && !updatingRef.current)setSettings(next);};
+  const updateMemo = (date: string, period: MemoPeriod, text: string) => {if(!restoringRef.current && !updatingRef.current)setDailyMemos((current) => changeMemo(current, date, period, text));};
+  const toggleCalendar = () => {if(!restoringRef.current && !updatingRef.current)setSettings((current) => ({ ...current, calendarOpen: !current.calendarOpen }));};
   const openHistory = async () => { await flushSave(); setHistoryOpen(true); };
   const saveVersion = async () => {
     if (savingVersionRef.current || restoringRef.current) throw new Error('正在保存或恢复，请稍后重试');
@@ -247,9 +265,10 @@ export default function App() {
 
   return <div className={`app font-${settings.fontSize}`} style={{ '--surface-alpha': settings.opacity / 100 } as CSSProperties}>
     <TitleBar onSettings={() => setSettingsOpen(true)} taskCount={tasks.filter((task) => !task.completed).length}
-      today={today} calendarOpen={settings.calendarOpen} onCalendar={toggleCalendar} onCompleted={() => setCompletedOpen(true)} onSave={() => void saveFromMain()} saving={savingVersion} onHistory={() => void openHistory()} onCloud={() => {setCloudSection('share');setCloudOpen(true);}} onPhone={() => {setCloudSection('phone');setCloudOpen(true);}} cloudError={!!cloud.status.error} disabled={!ready} />
+      today={today} calendarOpen={settings.calendarOpen} onCalendar={toggleCalendar} onCompleted={() => setCompletedOpen(true)} onSave={() => void saveFromMain()} saving={savingVersion} onHistory={() => void openHistory()} onCloud={() => {setCloudSection('share');setCloudOpen(true);}} onPhone={() => {setCloudSection('phone');setCloudOpen(true);}} cloudError={!!cloud.status.error} disabled={!ready || updating} />
     {saveNotice && <div className="save-notice" role="status">{saveNotice}</div>}
-    {saveError && <div className="save-error" role="alert">本地保存失败。请检查磁盘空间或文件权限；下一次修改时会重试。</div>}
+    {updating && <div className="save-error" role="status">正在保存当前完整版本并准备更新，请稍候…</div>}
+    {saveError && <div className="save-error" role="alert">本地读取或保存失败，原文件和备份仍保留。请检查磁盘空间、文件权限或从更新备份恢复。</div>}
     {settings.calendarOpen ? <CalendarPanel today={today} memos={dailyMemos} marks={syncMarks} onChange={updateMemo} onClose={toggleCalendar} /> : <main className="matrix" aria-label="艾森豪威尔任务矩阵">
       {quadrants.map((quadrant) => <Quadrant key={quadrant} quadrant={quadrant} marks={syncMarks} tasks={tasks.filter((task) => task.quadrant === quadrant && (settings.showCompleted || !task.completed))} focusId={focusId} fontSize={settings.fontSize} onAdd={addTask} onChange={updateTask} onDelete={deleteTask} onMove={moveTask} />)}
     </main>}

@@ -21,6 +21,9 @@ $sources = @(
     [pscustomobject]@{ Path = (Join-Path $dataDirectory '.window-state.json'); Name = '.window-state.json' },
     [pscustomobject]@{ Path = (Join-Path $dataDirectory '.cloud-config.bin'); Name = '.cloud-config.bin' },
     [pscustomobject]@{ Path = (Join-Path $dataDirectory '.cloud-config.previous.bin'); Name = '.cloud-config.previous.bin' },
+    [pscustomobject]@{ Path = (Join-Path $dataDirectory '.focus-matrix.previous.json'); Name = '.focus-matrix.previous.json' },
+    [pscustomobject]@{ Path = (Join-Path $dataDirectory '.update-session.json'); Name = '.update-session.json' },
+    [pscustomobject]@{ Path = (Join-Path $dataDirectory '.update-restored.json'); Name = '.update-restored.json' },
     [pscustomobject]@{ Path = (Join-Path $env:LOCALAPPDATA 'Programs\FocusMatrix\FocusMatrix.exe'); Name = 'FocusMatrix.exe' },
     [pscustomobject]@{ Path = (Join-Path $env:LOCALAPPDATA 'Programs\Focus Matrix\Focus Matrix.exe'); Name = 'Focus Matrix.exe' }
 )

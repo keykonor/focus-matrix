@@ -3,6 +3,7 @@ use tauri::{menu::{Menu, MenuItem}, tray::TrayIconBuilder, Emitter, Manager};
 use tauri_plugin_window_state::{AppHandleExt, StateFlags};
 mod history;
 mod cloud;
+mod local_data;
 
 struct DesktopLayer(AtomicBool);
 
@@ -90,6 +91,7 @@ pub fn run() {
         .manage(DesktopLayer(AtomicBool::new(false)))
         .manage(history::HistoryState::default())
         .manage(cloud::CloudState::default())
+        .manage(local_data::LocalDataState::default())
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_window_state::Builder::default()
             .with_state_flags(StateFlags::POSITION | StateFlags::SIZE | StateFlags::MAXIMIZED)
@@ -99,6 +101,7 @@ pub fn run() {
             Some(vec!["--autostart"]),
         ))
         .invoke_handler(tauri::generate_handler![backup_corrupt_store, quit_app, set_desktop_layer,
+            local_data::read_local_data, local_data::commit_local_data, local_data::read_update_request, local_data::finish_update_prepare, local_data::ack_update_restore,
             history::save_content_version, history::list_content_versions, history::get_content_version,
             cloud::get_cloud_status, cloud::configure_cloud, cloud::sync_cloud, cloud::set_cloud_sharing, cloud::rotate_cloud_link, cloud::ack_cloud_applied, cloud::set_share_editing, cloud::create_mobile_pairing, cloud::list_mobile_devices, cloud::revoke_mobile_device, cloud::get_cloud_changes])
         .on_window_event(|window, event| {

@@ -17,6 +17,7 @@
     "check:ui": "node scripts/check-ui.mjs",
     "check:calendar": "node scripts/check-calendar.mjs",
     "check:completed": "node scripts/check-completed-tasks.mjs",
+    "test:update": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-update-preservation.ps1",
     "android:deploy": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/deploy-android.ps1",
     "android:deploy:test": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-android-deploy.ps1"
   },

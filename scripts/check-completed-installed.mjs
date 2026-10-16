@@ -50,6 +50,16 @@ try {
   await delay(1000);
   assert.equal(await evaluate("Boolean(document.querySelector('.save-error'))"), false);
   const current = JSON.parse(await readFile(join(directory, 'focus-matrix.json'), 'utf8'));
+  if (process.argv.includes('--exact')) {
+    const currentHash = createHash('sha256').update(await readFile(join(directory, 'focus-matrix.json'))).digest('hex');
+    const backupHash = createHash('sha256').update(await readFile(join(backup, 'focus-matrix.json'))).digest('hex');
+    assert.equal(currentHash, backupHash, 'The complete saved store changed after update');
+    const session = JSON.parse(await readFile(join(directory, '.update-session.json'), 'utf8'));
+    const receipt = JSON.parse(await readFile(join(directory, '.update-restored.json'), 'utf8'));
+    assert.equal(session.phase, 'verified');
+    assert.equal(session.nonce, receipt.nonce);
+    assert.equal(receipt.verified, true);
+  }
   assert.deepEqual(current.dailyMemos, before.dailyMemos, 'Memos changed');
   assert.deepEqual(current.settings, before.settings, 'Settings changed');
   const currentRecords = current.completedTasks ?? [];
