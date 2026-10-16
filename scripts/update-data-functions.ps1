@@ -8,10 +8,10 @@ using System.Runtime.InteropServices;
 public static class FocusMatrixAtomicMove {
     [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
     private static extern bool MoveFileEx(string existing, string destination, uint flags);
-    public static void Replace(string existing, string destination) {
+    public static int Replace(string existing, string destination) {
         // Same-directory rename, replace-existing and write-through. Unlike
         // ReplaceFile this does not attempt to merge incompatible EFS metadata.
-        if (!MoveFileEx(existing, destination, 0x1 | 0x8)) throw new Win32Exception(Marshal.GetLastWin32Error());
+        return MoveFileEx(existing, destination, 0x1 | 0x8) ? 0 : Marshal.GetLastWin32Error();
     }
 }
 '@
@@ -22,11 +22,40 @@ function Read-UpdateJson([string]$Path) {
     catch { throw ('JSON validation failed; original content retained: ' + [IO.Path]::GetFileName($Path)) }
 }
 
-function Write-AtomicBytes([string]$Path, [byte[]]$Bytes) {
-    $temporary = $Path + '.tmp-' + [guid]::NewGuid().ToString('N')
-    $stream = [IO.File]::Open($temporary, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+function Write-DurableBytes([string]$Path, [byte[]]$Bytes, [bool]$Exclusive = $false) {
+    $mode = if ($Exclusive) { [IO.FileMode]::CreateNew } else { [IO.FileMode]::Create }
+    $stream = [IO.File]::Open($Path, $mode, [IO.FileAccess]::Write, [IO.FileShare]::None)
     try { $stream.Write($Bytes, 0, $Bytes.Length); $stream.Flush($true) } finally { $stream.Dispose() }
-    [FocusMatrixAtomicMove]::Replace($temporary, $Path)
+}
+
+function Restore-PendingWrite([string]$Path) {
+    $pending = $Path + '.pending-write'
+    $ready = $pending + '.ready'
+    if (-not [IO.File]::Exists($ready)) { return }
+    if (-not [IO.File]::Exists($pending) -or
+        [IO.File]::ReadAllText($ready, [Text.Encoding]::UTF8) -cne (Get-FileHash -LiteralPath $pending).Hash.ToLowerInvariant()) {
+        throw 'Incomplete or damaged save journal. Original data retained; update stopped.'
+    }
+    Write-DurableBytes $Path ([IO.File]::ReadAllBytes($pending))
+    if ((Get-FileHash -LiteralPath $Path).Hash -ne (Get-FileHash -LiteralPath $pending).Hash) { throw 'Save verification failed. Complete journal retained.' }
+    [IO.File]::Delete($ready)
+    [IO.File]::Delete($pending)
+}
+
+function Write-AtomicBytes([string]$Path, [byte[]]$Bytes) {
+    Restore-PendingWrite $Path
+    $temporary = $Path + '.tmp-' + [guid]::NewGuid().ToString('N')
+    Write-DurableBytes $temporary $Bytes $true
+    $code = [FocusMatrixAtomicMove]::Replace($temporary, $Path)
+    if ($code -eq 0) { return }
+    if ($code -notin @(17, 1175, 6002)) { throw (New-Object ComponentModel.Win32Exception($code)) }
+    # EFS/redirected directories may refuse same-directory atomic renames.
+    # A flushed payload and SHA-256 marker make a partial copy recoverable.
+    $pending = $Path + '.pending-write'
+    Write-DurableBytes $pending $Bytes
+    Write-DurableBytes ($pending + '.ready') ([Text.Encoding]::ASCII.GetBytes((Get-FileHash -LiteralPath $pending).Hash.ToLowerInvariant())) $true
+    Restore-PendingWrite $Path
+    [IO.File]::Delete($temporary)
 }
 
 function Write-AtomicJson([string]$Path, $Value) {
@@ -60,6 +89,8 @@ function Restore-UpdateSnapshot([string]$BackupDirectory, [string]$DataDirectory
     foreach ($entry in $manifest.files | Where-Object { $managed -contains $_.name }) {
         $saved = Join-Path $BackupDirectory $entry.name
         $destination = Join-Path $DataDirectory $entry.name
+        Restore-PendingWrite $destination
+        if ([IO.File]::Exists($destination) -and (Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash -eq $entry.sha256) { continue }
         Write-AtomicBytes $destination ([IO.File]::ReadAllBytes($saved))
         if ((Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash -ne $entry.sha256) { throw ('Restored snapshot checksum failed: ' + $entry.name) }
     }

@@ -29,3 +29,16 @@ $blocked = $false
 try { Read-VerifiedUpdateBackup (Split-Path -Parent $backup) (Join-Path $root 'different-data') | Out-Null } catch { $blocked=$true }
 if (-not $blocked) { throw 'A backup outside the data directory was accepted.' }
 Write-Output 'PASS: exact complete restore, unknown fields and window preserved, damaged backup blocked, path containment enforced.'
+$journalTarget = Join-Path $data 'journal-test.json'
+Write-DurableBytes $journalTarget ([Text.Encoding]::UTF8.GetBytes('interrupted'))
+Write-DurableBytes ($journalTarget + '.pending-write') $original
+Restore-PendingWrite $journalTarget
+if ([IO.File]::ReadAllText($journalTarget) -ne 'interrupted') { throw 'Unsealed journal was applied.' }
+Write-DurableBytes ($journalTarget + '.pending-write.ready') ([Text.Encoding]::ASCII.GetBytes('bad checksum'))
+$blocked=$false
+try { Restore-PendingWrite $journalTarget } catch { $blocked=$true }
+if (-not $blocked -or [IO.File]::ReadAllText($journalTarget) -ne 'interrupted') { throw 'Damaged journal changed data.' }
+Write-DurableBytes ($journalTarget + '.pending-write.ready') ([Text.Encoding]::ASCII.GetBytes((Get-FileHash -LiteralPath ($journalTarget + '.pending-write')).Hash.ToLowerInvariant()))
+Restore-PendingWrite $journalTarget
+if ((Get-FileHash -LiteralPath $journalTarget).Hash -ne (Get-FileHash -LiteralPath (Join-Path $data 'focus-matrix.json')).Hash) { throw 'Interrupted copy was not recovered.' }
+Write-Output 'PASS: sealed journal recovers interrupted copies; damaged/unsealed journals never overwrite data.'

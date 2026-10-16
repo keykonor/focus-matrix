@@ -1,4 +1,5 @@
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use std::{fs::{self, OpenOptions}, io::Write, path::Path, sync::{atomic::{AtomicU64, Ordering}, Mutex}, time::{SystemTime, UNIX_EPOCH}};
 use tauri::Manager;
 
@@ -14,15 +15,57 @@ fn read(path: &Path) -> Result<Value, String> {
     serde_json::from_slice(bytes.strip_prefix(&[0xef, 0xbb, 0xbf]).unwrap_or(&bytes))
         .map_err(|_| "本地数据无法读取，已停止写入，原文件及备份仍保留".into())
 }
+fn journal_paths(path: &Path) -> (std::path::PathBuf, std::path::PathBuf) {
+    let name = path.file_name().unwrap().to_string_lossy();
+    (path.with_file_name(format!("{name}.pending-write")), path.with_file_name(format!("{name}.pending-write.ready")))
+}
+fn durable_write(path: &Path, bytes: &[u8], exclusive: bool) -> Result<(), String> {
+    let mut options = OpenOptions::new();
+    options.write(true);
+    if exclusive { options.create_new(true); } else { options.create(true).truncate(true); }
+    let mut file = options.open(path).map_err(|e| e.to_string())?;
+    file.write_all(bytes).and_then(|_| file.sync_all()).map_err(|e| e.to_string())
+}
+fn recover_write(path: &Path) -> Result<(), String> {
+    let (pending, ready) = journal_paths(path);
+    if !ready.exists() { return Ok(()); }
+    let bytes = fs::read(&pending).map_err(|_| "保存日志不完整，已停止写入以保留原内容")?;
+    let checksum = format!("{:x}", Sha256::digest(&bytes));
+    if fs::read(&ready).map_err(|e| e.to_string())? != checksum.as_bytes() {
+        return Err("保存日志校验失败，已停止写入以保留原内容".into());
+    }
+    durable_write(path, &bytes, false)?;
+    if fs::read(path).map_err(|e| e.to_string())? != bytes { return Err("保存后校验失败，完整保存日志仍保留".into()); }
+    // Removing the commit marker only after verification makes interrupted
+    // copies replayable. An unsealed payload is never used during recovery.
+    fs::remove_file(&ready).map_err(|e| e.to_string())?;
+    let _ = fs::remove_file(&pending);
+    Ok(())
+}
 fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let parent = path.parent().ok_or("Invalid data path")?;
     fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    recover_write(path)?;
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e| e.to_string())?.as_nanos();
     let temporary = parent.join(format!(".local-save-{stamp}-{}.tmp", SERIAL.fetch_add(1, Ordering::Relaxed)));
     let mut file = OpenOptions::new().write(true).create_new(true).open(&temporary).map_err(|e| e.to_string())?;
     file.write_all(bytes).and_then(|_| file.sync_all()).map_err(|e| e.to_string())?;
     drop(file);
-    fs::rename(&temporary, path).map_err(|e| e.to_string())
+    match fs::rename(&temporary, path) {
+        Ok(()) => Ok(()),
+        Err(error) if cfg!(windows) && matches!(error.raw_os_error(), Some(17 | 1175 | 6002)) => {
+            // Some EFS/redirected Windows directories reject same-directory
+            // renames. Seal a durable write-ahead copy before touching the
+            // target, and replay it before any subsequent startup/read.
+            let (pending, ready) = journal_paths(path);
+            durable_write(&pending, bytes, false)?;
+            durable_write(&ready, format!("{:x}", Sha256::digest(bytes)).as_bytes(), true)?;
+            recover_write(path)?;
+            let _ = fs::remove_file(&temporary);
+            Ok(())
+        }
+        Err(error) => Err(error.to_string()),
+    }
 }
 fn write_json(path: &Path, value: &Value) -> Result<(), String> {
     atomic_write(path, &serde_json::to_vec(value).map_err(|e| e.to_string())?)
@@ -54,6 +97,7 @@ fn validate(value: &Value) -> Result<(), String> {
 }
 fn commit(root: &Path, patch: Value) -> Result<(), String> {
     let path = root.join(STORE);
+    recover_write(&path)?;
     let existed = path.exists();
     let mut current = if existed { read(&path)? } else { json!({}) };
     validate(&current)?;
@@ -90,6 +134,9 @@ fn commit(root: &Path, patch: Value) -> Result<(), String> {
 pub fn read_local_data(app: tauri::AppHandle, state: tauri::State<'_, LocalDataState>) -> Result<Value, String> {
     let _guard = state.0.lock().map_err(|_| "Local data lock failed")?;
     let directory = root(&app)?;
+    for name in [STORE, ".focus-matrix.previous.json", ".update-session.json", ".update-restored.json", ".update-ready.json"] {
+        recover_write(&directory.join(name))?;
+    }
     let path = directory.join(STORE);
     if !path.exists() && directory.join("backups").exists() {
         return Err("当前数据文件缺失，发现旧备份；已停止创建空数据，请从更新备份恢复".into());
@@ -189,6 +236,24 @@ mod tests {
         fs::create_dir(root.join(".focus-matrix.previous.json")).unwrap();
         assert!(commit(&root, json!({"taskDay":"2026-10-17"})).is_err());
         assert_eq!(fs::read(root.join(STORE)).unwrap(), original);
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn interrupted_copy_recovers_only_a_sealed_valid_journal() {
+        let root = fixture(); let path = root.join(STORE);
+        let (pending, ready) = journal_paths(&path);
+        let original = br#"{"tasks":[],"settings":{"keep":true}}"#;
+        fs::write(&path, b"interrupted").unwrap();
+        fs::write(&pending, original).unwrap();
+        recover_write(&path).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"interrupted");
+        fs::write(&ready, b"damaged checksum").unwrap();
+        assert!(recover_write(&path).is_err());
+        assert_eq!(fs::read(&path).unwrap(), b"interrupted");
+        fs::write(&ready, format!("{:x}", Sha256::digest(original))).unwrap();
+        recover_write(&path).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), original);
+        assert!(!ready.exists());
         fs::remove_dir_all(root).unwrap();
     }
 }

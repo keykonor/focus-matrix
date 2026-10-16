@@ -29,6 +29,10 @@ $sources = @(
 )
 
 $historyDirectory = Join-Path $dataDirectory 'history'
+# Preserve interrupted write journals as well as the ordinary complete store.
+foreach ($pending in Get-ChildItem -LiteralPath $dataDirectory -Filter '*.pending-write*' -File -ErrorAction Stop) {
+    $sources += [pscustomobject]@{ Path=$pending.FullName; Name=$pending.Name }
+}
 if (Test-Path -LiteralPath $historyDirectory -PathType Container) {
     foreach ($historyFile in Get-ChildItem -LiteralPath $historyDirectory -Recurse -File -ErrorAction Stop) {
         $relativeName = $historyFile.FullName.Substring($historyDirectory.Length + 1)

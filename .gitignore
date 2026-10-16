@@ -46,3 +46,4 @@ focus-matrix.json
 .focus-matrix*.json
 .window-state.json
 .update-*.json
+*.pending-write*
