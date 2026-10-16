@@ -1,5 +1,22 @@
 Set-StrictMode -Version Latest
 
+if (-not ('FocusMatrixAtomicMove' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+public static class FocusMatrixAtomicMove {
+    [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+    private static extern bool MoveFileEx(string existing, string destination, uint flags);
+    public static void Replace(string existing, string destination) {
+        // Same-directory rename, replace-existing and write-through. Unlike
+        // ReplaceFile this does not attempt to merge incompatible EFS metadata.
+        if (!MoveFileEx(existing, destination, 0x1 | 0x8)) throw new Win32Exception(Marshal.GetLastWin32Error());
+    }
+}
+'@
+}
+
 function Read-UpdateJson([string]$Path) {
     try { return ([IO.File]::ReadAllText($Path, [Text.Encoding]::UTF8).TrimStart([char]0xFEFF) | ConvertFrom-Json) }
     catch { throw ('JSON validation failed; original content retained: ' + [IO.Path]::GetFileName($Path)) }
@@ -9,8 +26,7 @@ function Write-AtomicBytes([string]$Path, [byte[]]$Bytes) {
     $temporary = $Path + '.tmp-' + [guid]::NewGuid().ToString('N')
     $stream = [IO.File]::Open($temporary, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
     try { $stream.Write($Bytes, 0, $Bytes.Length); $stream.Flush($true) } finally { $stream.Dispose() }
-    if (Test-Path -LiteralPath $Path -PathType Leaf) { [IO.File]::Replace($temporary, $Path, [NullString]::Value) }
-    else { [IO.File]::Move($temporary, $Path) }
+    [FocusMatrixAtomicMove]::Replace($temporary, $Path)
 }
 
 function Write-AtomicJson([string]$Path, $Value) {

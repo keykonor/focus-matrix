@@ -5,7 +5,8 @@ $root = Join-Path (Split-Path -Parent $PSScriptRoot) ('outputs\update-test-' + [
 $data = Join-Path $root 'data'
 $backup = Join-Path $data 'backups\test-version'
 New-Item -ItemType Directory -Path $backup -Force | Out-Null
-$original = [Text.Encoding]::UTF8.GetBytes('{"tasks":[],"dailyMemos":{"2026-10-16":{"morning":"keep"}},"settings":{"unknown":true},"completedTasks":[],"futureData":"keep"}')
+$unicodeText = [string][char]0x4e2d + [char]0x6587 + [char]0x5b57
+$original = [Text.Encoding]::UTF8.GetBytes('{"tasks":[],"dailyMemos":{"2026-10-16":{"morning":"keep"}},"settings":{"unknown":true},"completedTasks":[],"futureData":"' + $unicodeText + '"}')
 $window = [Text.Encoding]::UTF8.GetBytes('{"main":{"x":123,"width":720}}')
 [IO.File]::WriteAllBytes((Join-Path $backup 'focus-matrix.json'), $original)
 [IO.File]::WriteAllBytes((Join-Path $backup '.window-state.json'), $window)
@@ -15,6 +16,7 @@ $entries = @('focus-matrix.json', '.window-state.json') | ForEach-Object {
 Write-AtomicJson (Join-Path $backup 'manifest.json') @{ files=@($entries) }
 Write-AtomicBytes (Join-Path $data 'focus-matrix.json') ([Text.Encoding]::UTF8.GetBytes('{"tasks":[],"changed":true}'))
 Restore-UpdateSnapshot $backup $data
+if ((Read-UpdateJson (Join-Path $data 'focus-matrix.json')).futureData -ne $unicodeText) { throw 'UTF-8 text did not round-trip.' }
 if ([Convert]::ToBase64String([IO.File]::ReadAllBytes((Join-Path $data 'focus-matrix.json'))) -ne [Convert]::ToBase64String($original)) { throw 'Full snapshot was not restored byte-for-byte.' }
 if ([Convert]::ToBase64String([IO.File]::ReadAllBytes((Join-Path $data '.window-state.json'))) -ne [Convert]::ToBase64String($window)) { throw 'Window snapshot changed.' }
 # Simulate a damaged backup; active state must remain unchanged.

@@ -2,6 +2,8 @@
 
 用户要求：每次更新软件，都要保留更新前的内容。任务、日期备忘录、设置和窗口状态不能因更新而清空或被覆盖。
 
+- 本次更新保护修复仍待最终安装验收：详见 docs/update-preservation-review-20261016.md。当前数据 15 条任务、3 条仓库、8 个备忘日期，与 backups/20261016-160321-287-6098e3 的完整 Store 字节一致；不要以更早整表回滚后来新增内容。正式 exe 943a036033e2eee53adbb3b1e86f366fc75bce8f7ce30823898e521b976d7cb2 已构建并被复制，但此前安装在恢复步骤遇到 File.Replace 的 EFS 兼容错误，未完成启动确认；已改为 MoveFileEx 并通过中文快照隔离测试。旧程序已正常保存退出。修复后两个安装命令被自动审批超时阻止，已请求用户明确授权；收到后继续指定安装脚本，做两次真实更新及 --exact 验收，关闭 CDP，保存最终源码版本。不能称为完整更新流程已验收成功。源代码提交 eef1278 后的 helper 修复另存 outputs/pending-update-preservation.patch。
+
 - 2026-10-16 更新数据保护修正：以更新前当前完整 Store 为唯一恢复基线，不拿更早的整表覆盖后来新增内容。`install-local.ps1` 使用 nonce/PID/协议号的保存退出确认，不允许固定等待后强制杀旧程序；旧版首次需先安全保存退出。停止后完整备份并恢复当前快照，新版在开启编辑/同步前逐字节核对并确认，失败保留现场后回退。`.update-session.json` 记录当前更新及本地日期保护，更新当天不触发额外归档，首个缺少日期标记的旧数据启动只建立日期，不清理已完成项。该规则替代之前首次升级立即归档的行为。
 - 桌面本地读写改用 `src-tauri/src/local_data.rs` 与 `src/storage.ts` 的 Tauri 原生原子文件提交，文件路径和原 Store 格式不变；只提交变化字段，保存前历史及落盘成功后同步确认规则不变。不再因读取错误重建空数据；缺少任务字段、坏任务/备忘录/仓库必须停止写入。保留未知字段，归档仅改变目标任务、仓库和日期标记；`.focus-matrix.previous.json` 保留前一有效完整状态，并纳入更新备份。`npm run test:update` 与 `npm run check:completed` 只使用隔离测试数据。
 - 本次腾讯官方 CLI 只读诊断：环境 NORMAL、体验版到期 2027-04-07、函数配置 Active，但 `AvailableStatus=InsufficientBalance`；公网 410 响应头 `x-cloudbase-upstream-type=Tencent-SCF_HTTP`、`x-cloudbase-upstream-status-code=410`。腾讯云 SCF 官方状态码定义 410 为账户余额不足停服，因此不是已证实的默认域名到期，也不能用重新配对/换链接解决。需用户核对腾讯云费用中心的余额和账单；未充值、购买、变更套餐或清除数据库/凭据。云同步目前不能声称恢复。
