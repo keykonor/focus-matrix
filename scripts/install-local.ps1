@@ -73,7 +73,7 @@ public static class FocusMatrixUpdateWindow {
         Start-Sleep -Milliseconds 200
     }
     $ackPath = Join-Path $dataDirectory '.update-ready.json'
-    $ack = if (Test-Path -LiteralPath $ackPath) { Get-Content -LiteralPath $ackPath -Raw | ConvertFrom-Json } else { $null }
+    $ack = if (Test-Path -LiteralPath $ackPath) { Read-UpdateJson $ackPath } else { $null }
     if (@($running | Where-Object { Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue }).Count -gt 0 -or $null -eq $ack -or $ack.nonce -ne $updateNonce -or $ack.protocol -ne 2 -or -not (@($running.ProcessId) -contains $ack.pid)) {
         Write-AtomicJson (Join-Path $dataDirectory '.update-request.json') @{ nonce=$updateNonce; cancelled=$true }
         throw 'No confirmed save-and-exit acknowledgement. Update stopped without killing the app. For an older version, save and exit from the tray, then retry.'
@@ -114,8 +114,8 @@ try {
     while ([DateTime]::UtcNow -lt $deadline) {
         $receiptPath = Join-Path $dataDirectory '.update-restored.json'
         if (Test-Path -LiteralPath $receiptPath) {
-            $receipt = Get-Content -LiteralPath $receiptPath -Raw | ConvertFrom-Json
-            $session = Get-Content -LiteralPath (Join-Path $dataDirectory '.update-session.json') -Raw | ConvertFrom-Json
+            $receipt = Read-UpdateJson $receiptPath
+            $session = Read-UpdateJson (Join-Path $dataDirectory '.update-session.json')
             if ($receipt.nonce -eq $updateNonce -and $receipt.verified -and $receipt.pid -eq $newProcess.Id -and $session.phase -eq 'verified' -and $session.nonce -eq $updateNonce) { $verified=$true; break }
         }
         if ($newProcess.HasExited) { break }

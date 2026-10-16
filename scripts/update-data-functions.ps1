@@ -1,5 +1,10 @@
 Set-StrictMode -Version Latest
 
+function Read-UpdateJson([string]$Path) {
+    try { return ([IO.File]::ReadAllText($Path, [Text.Encoding]::UTF8).TrimStart([char]0xFEFF) | ConvertFrom-Json) }
+    catch { throw ('JSON validation failed; original content retained: ' + [IO.Path]::GetFileName($Path)) }
+}
+
 function Write-AtomicBytes([string]$Path, [byte[]]$Bytes) {
     $temporary = $Path + '.tmp-' + [guid]::NewGuid().ToString('N')
     $stream = [IO.File]::Open($temporary, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
@@ -16,7 +21,7 @@ function Read-VerifiedUpdateBackup([string]$BackupDirectory, [string]$DataDirect
     $backupRoot = [IO.Path]::GetFullPath((Join-Path $DataDirectory 'backups')) + [IO.Path]::DirectorySeparatorChar
     $resolved = [IO.Path]::GetFullPath($BackupDirectory)
     if (-not $resolved.StartsWith($backupRoot, [StringComparison]::OrdinalIgnoreCase)) { throw 'Backup must be inside the application backup directory.' }
-    $manifest = Get-Content -LiteralPath (Join-Path $resolved 'manifest.json') -Raw | ConvertFrom-Json
+    $manifest = Read-UpdateJson (Join-Path $resolved 'manifest.json')
     foreach ($entry in $manifest.files) {
         $path = [IO.Path]::GetFullPath((Join-Path $resolved $entry.name))
         if (-not $path.StartsWith($resolved + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'Invalid backup entry path.' }
@@ -27,7 +32,7 @@ function Read-VerifiedUpdateBackup([string]$BackupDirectory, [string]$DataDirect
         }
     }
     if (-not @($manifest.files | Where-Object name -eq 'focus-matrix.json').Count) { throw 'The complete user store is missing from backup.' }
-    $data = Get-Content -LiteralPath (Join-Path $resolved 'focus-matrix.json') -Raw | ConvertFrom-Json
+    $data = Read-UpdateJson (Join-Path $resolved 'focus-matrix.json')
     if ($null -eq $data.tasks) { throw 'Backup task data cannot be read.' }
     return $manifest
 }
