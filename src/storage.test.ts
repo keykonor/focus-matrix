@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Store } from '@tauri-apps/plugin-store';
 import { saveData } from './storage';
 import { defaultSettings } from './types';
+import { rolloverCompletedTasks } from './completedTasks';
 
 const { archive } = vi.hoisted(() => ({ archive: vi.fn() }));
 vi.mock('./contentHistory', () => ({ archiveContent: archive }));
@@ -22,5 +23,21 @@ describe('content history guards the current data', () => {
     await saveData({ set, save } as unknown as Store, { tasks: [], dailyMemos: {}, settings: defaultSettings });
     expect(sequence).toEqual(['archive', 'tasks', 'settings', 'dailyMemos', 'save']);
     expect(archive).toHaveBeenCalledWith({ tasks: [], dailyMemos: {} });
+  });
+  it('persists the repository and remaining tasks together and keeps the original plan on failure', async () => {
+    const original = { tasks: [{ id: 'done', text: '保留完整内容', completed: true, quadrant: 'important-urgent' as const,
+      createdAt: '2026-10-10T12:00:00Z', updatedAt: '2026-10-10T12:00:00Z' }],
+      settings: defaultSettings, dailyMemos: {}, taskDay: '2026-10-10' };
+    const next = rolloverCompletedTasks(original, '2026-10-16');
+    const writes: Record<string, unknown> = {};
+    const save = vi.fn().mockRejectedValueOnce(new Error('Disk full')).mockResolvedValue(undefined);
+    const store = { set: vi.fn(async (key: string, value: unknown) => { writes[key] = value; }), save } as unknown as Store;
+    await expect(saveData(store, next)).rejects.toThrow('Disk full');
+    expect(original.tasks).toHaveLength(1);
+    await saveData(store, next);
+    expect(writes.tasks).toEqual([]);
+    expect(writes.completedTasks).toEqual(next.completedTasks);
+    expect(writes.taskDay).toBe('2026-10-16');
+    expect(writes.settings).toEqual(defaultSettings);
   });
 });

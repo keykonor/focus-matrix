@@ -16,6 +16,7 @@
     "test": "vitest run src",
     "check:ui": "node scripts/check-ui.mjs",
     "check:calendar": "node scripts/check-calendar.mjs",
+    "check:completed": "node scripts/check-completed-tasks.mjs",
     "android:deploy": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/deploy-android.ps1",
     "android:deploy:test": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-android-deploy.ps1"
   },

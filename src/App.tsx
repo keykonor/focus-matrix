@@ -10,15 +10,17 @@ import { SettingsModal } from './components/SettingsModal';
 import { TitleBar } from './components/TitleBar';
 import { CalendarPanel } from './components/CalendarPanel';
 import { HistoryModal } from './components/HistoryModal';
+import { CompletedTasksModal } from './components/CompletedTasksModal';
+import { rolloverCompletedTasks, type CompletedTaskRecord } from './completedTasks';
 import { CloudShareModal } from './components/CloudShareModal';
 import { useCloudSharing, type CloudDelivery } from './hooks/useCloudSharing';
 import { mergeContent,same,type EditMark } from '../cloud-site/lib/syncModel';
 import { archiveContent, type ContentVersion } from './contentHistory';
 import { restoreTaskContent } from './taskHistory';
-import { changeMemo } from './calendarModel';
+import { changeMemo, localDateKey } from './calendarModel';
 import { useToday } from './hooks/useToday';
 import { changeTask, newTask } from './taskModel';
-import { openDataStore, saveData } from './storage';
+import { openDataStore, saveData, type AppData } from './storage';
 import { defaultSettings, quadrants, type AppSettings, type DailyMemos, type MemoPeriod, type QuadrantType, type Task } from './types';
 
 const windowHandle = getCurrentWindow();
@@ -32,10 +34,13 @@ export default function App() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);
   const [dailyMemos, setDailyMemos] = useState<DailyMemos>({});
+  const [completedTasks, setCompletedTasks] = useState<CompletedTaskRecord[]>([]);
+  const [taskDay, setTaskDay] = useState('');
   const today = useToday();
   const [ready, setReady] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [completedOpen, setCompletedOpen] = useState(false);
   const [cloudOpen, setCloudOpen] = useState(false);
   const [cloudSection,setCloudSection] = useState<'share'|'phone'>('share');
   const [syncMarks,setSyncMarks] = useState<Record<string,EditMark>>({});
@@ -45,23 +50,36 @@ export default function App() {
   const [saveNotice, setSaveNotice] = useState('');
   const savingVersionRef = useRef(false);
   const storeRef = useRef<Store | null>(null);
-  const dataRef = useRef({ tasks, settings, dailyMemos, syncMarks });
+  const dataRef = useRef<AppData>({ tasks, settings, dailyMemos, syncMarks, completedTasks, taskDay });
   const saveQueue = useRef<Promise<void>>(Promise.resolve());
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const closingRef = useRef(false);
   const restoringRef = useRef(false);
-  dataRef.current = { tasks, settings, dailyMemos, syncMarks };
+  dataRef.current = { tasks, settings, dailyMemos, syncMarks, completedTasks, taskDay };
 
   const flushSave = useCallback(async () => {
     if (restoringRef.current) return false;
     if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null; }
     const store = storeRef.current;
     if (!store) return false;
-    const snapshot = { ...dataRef.current };
+    const current = dataRef.current;
+    const snapshot = rolloverCompletedTasks(current, localDateKey());
+    const rollingOver = snapshot !== current;
+    if (rollingOver) restoringRef.current = true;
     const next = saveQueue.current.catch(() => undefined).then(() => saveData(store, snapshot));
     saveQueue.current = next;
-    try { await next; setSaveError(false); return true; }
+    try {
+      await next;
+      if (rollingOver) {
+        dataRef.current = snapshot;
+        setTasks(snapshot.tasks); setCompletedTasks(snapshot.completedTasks ?? []); setTaskDay(snapshot.taskDay ?? '');
+        const moved = current.tasks.length - snapshot.tasks.length;
+        if (moved > 0) { setFocusId(null); setSaveNotice(`已将 ${moved} 项已完成任务移入仓库`); }
+      }
+      setSaveError(false); return true;
+    }
     catch (error) { setSaveError(true); logError('自动保存失败', error); return false; }
+    finally { if (rollingOver) restoringRef.current = false; }
   }, []);
 
   const readContent = useCallback(() => ({tasks:dataRef.current.tasks,dailyMemos:dataRef.current.dailyMemos}),[]);
@@ -90,6 +108,8 @@ export default function App() {
       setSettings(data.settings);
       setDailyMemos(data.dailyMemos);
       setSyncMarks(data.syncMarks??{});
+      setCompletedTasks(data.completedTasks ?? []);
+      setTaskDay(data.taskDay ?? '');
       setReady(true);
     }).catch((error) => { logError('无法打开本地数据', error); if (active) { setSaveError(true); setReady(true); } });
     return () => { active = false; };
@@ -101,6 +121,20 @@ export default function App() {
     saveTimer.current = setTimeout(() => { void flushSave(); }, 400);
     return () => { if (saveTimer.current) clearTimeout(saveTimer.current); };
   }, [tasks, settings, dailyMemos, ready, flushSave]);
+
+  useEffect(() => {
+    if (!ready) return;
+    const checkDay = () => {
+      const day = dataRef.current.taskDay;
+      if (!day || day < localDateKey()) void flushSave();
+    };
+    checkDay();
+    // Also retry failed writes, and recheck when a sleeping/hidden app wakes up.
+    const retry = window.setInterval(checkDay, 30_000);
+    window.addEventListener('focus', checkDay);
+    document.addEventListener('visibilitychange', checkDay);
+    return () => { window.clearInterval(retry); window.removeEventListener('focus', checkDay); document.removeEventListener('visibilitychange', checkDay); };
+  }, [today, ready, flushSave]);
 
   useEffect(() => {
     if (!ready) return;
@@ -213,7 +247,7 @@ export default function App() {
 
   return <div className={`app font-${settings.fontSize}`} style={{ '--surface-alpha': settings.opacity / 100 } as CSSProperties}>
     <TitleBar onSettings={() => setSettingsOpen(true)} taskCount={tasks.filter((task) => !task.completed).length}
-      today={today} calendarOpen={settings.calendarOpen} onCalendar={toggleCalendar} onSave={() => void saveFromMain()} saving={savingVersion} onHistory={() => void openHistory()} onCloud={() => {setCloudSection('share');setCloudOpen(true);}} onPhone={() => {setCloudSection('phone');setCloudOpen(true);}} cloudError={!!cloud.status.error} disabled={!ready} />
+      today={today} calendarOpen={settings.calendarOpen} onCalendar={toggleCalendar} onCompleted={() => setCompletedOpen(true)} onSave={() => void saveFromMain()} saving={savingVersion} onHistory={() => void openHistory()} onCloud={() => {setCloudSection('share');setCloudOpen(true);}} onPhone={() => {setCloudSection('phone');setCloudOpen(true);}} cloudError={!!cloud.status.error} disabled={!ready} />
     {saveNotice && <div className="save-notice" role="status">{saveNotice}</div>}
     {saveError && <div className="save-error" role="alert">本地保存失败。请检查磁盘空间或文件权限；下一次修改时会重试。</div>}
     {settings.calendarOpen ? <CalendarPanel today={today} memos={dailyMemos} marks={syncMarks} onChange={updateMemo} onClose={toggleCalendar} /> : <main className="matrix" aria-label="艾森豪威尔任务矩阵">
@@ -221,6 +255,7 @@ export default function App() {
     </main>}
     {settingsOpen && <SettingsModal settings={settings} onChange={onSettingsChange} onClose={() => setSettingsOpen(false)} />}
     {historyOpen && <HistoryModal onClose={() => setHistoryOpen(false)} onSaveVersion={saveVersion} onRestore={restoreVersion} />}
+    {completedOpen && <CompletedTasksModal records={completedTasks} onClose={() => setCompletedOpen(false)} />}
     {cloudOpen && <CloudShareModal initialSection={cloudSection} status={cloud.status} busy={cloud.busy} onClose={() => setCloudOpen(false)} onSync={cloud.sync} onToggle={cloud.toggle} onEditing={cloud.editing} onRotate={cloud.rotate} />}
   </div>;
 }

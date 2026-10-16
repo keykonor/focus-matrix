@@ -272,6 +272,28 @@ button { cursor: pointer; }
 .history-list::-webkit-scrollbar, .history-preview::-webkit-scrollbar { width: 6px; }
 .history-list::-webkit-scrollbar-thumb, .history-preview::-webkit-scrollbar-thumb { background: #bdcfc2; border-radius: 6px; }
 
+.completed-modal { display: flex; flex-direction: column; width: min(100%, 740px); height: min(620px, calc(100vh - 36px)); min-width: 0; min-height: 0; padding: 22px; border: 1px solid #dce7df; border-radius: 5px; background: #f9fcf8; outline: 0; }
+.completed-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 16px 0; color: #718e7b; font-size: 11px; }
+.completed-filters > input { flex: 1 1 160px; min-width: 0; }
+.completed-filters label { display: flex; align-items: center; gap: 6px; }
+.completed-filters input { min-height: 32px; max-width: 100%; padding: 5px 8px; border: 1px solid #d5e2d7; border-radius: 3px; background: transparent; color: #41664e; font-size: 12px; }
+.completed-list { flex: 1; min-height: 0; overflow: auto; padding: 12px 8px 12px 0; border-top: 1px solid #e3ece3; border-bottom: 1px solid #e3ece3; scrollbar-width: thin; scrollbar-color: #bdcfc2 transparent; }
+.completed-list::-webkit-scrollbar { width: 6px; }
+.completed-list::-webkit-scrollbar-thumb { background: #bdcfc2; border-radius: 6px; }
+.completed-group { margin: 0 0 22px; }
+.completed-group h3 { margin: 0 0 8px; color: #65816e; font-size: 12px; font-weight: 600; }
+.completed-record { display: flex; align-items: flex-start; gap: 12px; padding: 11px 4px; }
+.completed-record + .completed-record { border-top: 1px solid #edf2ec; }
+.completed-record > div { flex: 1; min-width: 0; }
+.completed-check { color: #81a58c; font-size: 14px; line-height: 1.7; }
+.completed-record p { margin: 0 0 5px; color: #41634e; font-size: var(--task-font-size, 16px); line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+.completed-record small { color: #8ba294; font-size: 11px; }
+.completed-footnote { flex: none; margin-top: 12px; color: #8ba294; font-size: 11px; line-height: 1.6; }
+@media (max-width: 620px) {
+  .title-actions .cloud-button span, .title-actions .phone-button span { display: none; }
+  .completed-modal { padding: 16px; }
+}
+
 @media (max-width: 760px) {
   .title-bar { height: 36px; padding: 0 12px; }
   .brand { font-size: 11px; }
