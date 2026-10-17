@@ -88,13 +88,16 @@ try {
   await send('Page.addScriptToEvaluateOnNewDocument', { source: `if (location.origin === ${JSON.stringify(origin)}) {
     if (!sessionStorage.getItem('calendar-check-data')) sessionStorage.setItem('calendar-check-data', ${JSON.stringify(JSON.stringify(seed))});
     const RealDate = Date;
-    window.setTestDay = value => {
+    window.setTestDay = (value, notify = true, ticking = false) => {
       sessionStorage.setItem('repository-clock', value);
       const time = RealDate.parse(value);
-      window.Date = class extends RealDate { constructor(...args) { super(...(args.length ? args : [time])); } static now() { return time; } };
-      window.dispatchEvent(new Event('focus'));
+      const started = performance.now();
+      const clock = () => time + (ticking ? performance.now() - started : 0);
+      window.Date = class extends RealDate { constructor(...args) { super(...(args.length ? args : [clock()])); } static now() { return clock(); } };
+      if (notify) window.dispatchEvent(new Event('focus'));
     };
-    window.setTestDay(sessionStorage.getItem('repository-clock') || '2026-10-16T23:58:00+08:00');
+    window.setTestDay(sessionStorage.getItem('repository-clock') || '2026-10-16T23:58:00+08:00', false,
+      sessionStorage.getItem('repository-clock-ticking') === '1');
   }` });
   const navigation = await send('Page.navigate', { url: `${origin}/calendar-preview.html` });
   assert.equal(navigation.errorText, undefined, 'Fixture navigation failed');
@@ -200,6 +203,35 @@ try {
   assert.deepEqual(nextDay.futureState, updateSnapshot.futureState);
   assert.deepEqual(nextDay.tasks, [updateSnapshot.tasks[1]]);
   console.log('update restores exact full snapshot without rollover; next-day archive changes only its task: OK');
+
+  // Let the isolated clock really cross midnight. Do not emit focus, visibility
+  // or reload events to trigger the rollover after the page is ready.
+  const midnightSeed = { ...seed, taskDay: '2026-10-24', tasks: seed.tasks.map(task => ({
+    ...task, createdAt: '2026-10-24T08:00:00+08:00', updatedAt: '2026-10-24T20:00:00+08:00',
+  })) };
+  await evaluate(`sessionStorage.setItem('calendar-check-data', ${JSON.stringify(JSON.stringify(midnightSeed))});
+    sessionStorage.setItem('repository-clock', '2026-10-24T23:59:58+08:00');
+    sessionStorage.setItem('repository-clock-ticking', '1');
+    sessionStorage.removeItem('update-check-guard'); sessionStorage.removeItem('update-check-nonce');`);
+  await send('Page.reload');
+  await wait("document.querySelector('.completed-button')?.disabled === false");
+  assert.equal((await data()).tasks.length, 3);
+  await evaluate(`window.midnightEvents = 0;
+    window.addEventListener('focus', () => window.midnightEvents++);
+    document.addEventListener('visibilitychange', () => window.midnightEvents++);`);
+  const started = Date.now();
+  await wait("JSON.parse(sessionStorage.getItem('calendar-check-data')).tasks.length === 1");
+  assert.ok(Date.now() - started < 5000, 'Midnight rollover waited for the 30-second polling fallback');
+  assert.equal(await evaluate('window.midnightEvents'), 0);
+  const midnightResult = await data();
+  assert.deepEqual(midnightResult.tasks, [midnightSeed.tasks[1]]);
+  assert.equal(midnightResult.completedTasks.length, 3);
+  assert.deepEqual(midnightResult.completedTasks.slice(1).map(record => record.task),
+    [midnightSeed.tasks[0], midnightSeed.tasks[2]]);
+  assert.deepEqual(midnightResult.dailyMemos, midnightSeed.dailyMemos);
+  assert.deepEqual(midnightResult.settings, midnightSeed.settings);
+  assert.deepEqual(errors, []);
+  console.log('automatic midnight archive with no click, focus, visibility change or reopening: OK');
 } finally {
   if (socket?.readyState === WebSocket.OPEN) { await send('Browser.close').catch(() => {}); socket.close(); }
   browser.kill(); await new Promise(resolve => server.close(resolve));
