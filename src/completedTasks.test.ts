@@ -2,14 +2,15 @@ import { describe, expect, it } from 'vitest';
 import { parseCompletedTasks, rolloverCompletedTasks } from './completedTasks';
 import type { Task } from './types';
 
-const task = (id: string, completed = true, date = '2026-10-15T15:59:00+08:00'): Task => ({
+// These fixtures describe local calendar days, regardless of the runner's zone.
+const task = (id: string, completed = true, date = new Date(2026, 9, 15, 15, 59).toISOString()): Task => ({
   id, text: `${id} 的完整内容\n第二行`, completed, quadrant: 'important-urgent', createdAt: date, updatedAt: date,
 });
-const now = new Date('2026-10-16T00:01:00+08:00');
+const now = new Date(2026, 9, 16, 0, 1);
 
 describe('completed task repository', () => {
   it('moves yesterday completions on a new day and keeps pending/new-day tasks, memos and settings', () => {
-    const data = { tasks: [task('done'), task('pending', false), task('new-day', true, '2026-10-16T00:00:00+08:00')],
+    const data = { tasks: [task('done'), task('pending', false), task('new-day', true, new Date(2026, 9, 16).toISOString())],
       taskDay: '2026-10-15', completedTasks: [], dailyMemos: { keep: 'memo' }, settings: { keep: true } };
     const result = rolloverCompletedTasks(data, '2026-10-16', now);
     expect(result.tasks.map(item => item.id)).toEqual(['pending', 'new-day']);
@@ -35,7 +36,7 @@ describe('completed task repository', () => {
     expect(rolloverCompletedTasks(first, '2026-10-16', now)).toBe(first);
   });
   it('initializes legacy data without treating an upgrade as a date change', () => {
-    const result = rolloverCompletedTasks({ tasks: [task('old'), task('today', true, '2026-10-16T01:00:00+08:00'), task('unknown', true, '')] }, '2026-10-16', now);
+    const result = rolloverCompletedTasks({ tasks: [task('old'), task('today', true, new Date(2026, 9, 16, 1).toISOString()), task('unknown', true, '')] }, '2026-10-16', now);
     expect(result.tasks.map(item => item.id)).toEqual(['old', 'today', 'unknown']);
     expect(result.completedTasks).toEqual([]);
   });

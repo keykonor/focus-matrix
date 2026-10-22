@@ -61,7 +61,14 @@ jobs:
             if ($LASTEXITCODE -ne 0 -or $tagCommit -cne $env:GITHUB_SHA) { throw 'Existing source tag does not match the tested commit.' }
           }
       - name: Frontend tests
-        run: npm test
+        shell: pwsh
+        run: |
+          foreach ($zone in @('UTC', 'Asia/Shanghai', 'America/Los_Angeles')) {
+            $env:TZ = $zone
+            Write-Output "Testing local calendar behavior in $zone"
+            npm test
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
       - name: Source snapshot tests
         run: npm run version:test
       - name: Complete snapshot and installer preparation tests
