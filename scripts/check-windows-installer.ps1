@@ -8,10 +8,29 @@ if (Test-Path -LiteralPath $data) { throw 'App data already exists; refusing to 
 $root = Join-Path $env:RUNNER_TEMP ('focus-matrix-nsis-' + [guid]::NewGuid().ToString('N'))
 $install = Join-Path $root 'program'
 $null = New-Item -ItemType Directory -Path $root
+$env:FOCUS_MATRIX_INSTALL_LOG = Join-Path $root 'installer-hooks.log'
+function Show-InstallerDiagnostics {
+    Write-Output 'WebView2 registration:'
+    foreach ($hive in @('HKLM:\SOFTWARE', 'HKLM:\SOFTWARE\WOW6432Node', 'HKCU:\SOFTWARE', 'HKCU:\SOFTWARE\WOW6432Node')) {
+        $clients = Join-Path $hive 'Microsoft\EdgeUpdate\Clients'
+        if (Test-Path -LiteralPath $clients) {
+            Get-ChildItem -LiteralPath $clients | Get-ItemProperty | Select-Object PSChildName, name, pv | Format-Table
+        }
+    }
+    if (Test-Path -LiteralPath $env:FOCUS_MATRIX_INSTALL_LOG) { Get-Content -LiteralPath $env:FOCUS_MATRIX_INSTALL_LOG }
+    else { Write-Output 'No installer hook log was created.' }
+    foreach ($log in @((Join-Path $env:TEMP 'msedge_installer.log'), (Join-Path $env:TEMP 'MicrosoftEdgeUpdate.log'), (Join-Path $env:ProgramData 'Microsoft\EdgeUpdate\Log\MicrosoftEdgeUpdate.log'))) {
+        if (Test-Path -LiteralPath $log) { Write-Output "Runtime log: $log"; Get-Content -LiteralPath $log -Tail 30 }
+    }
+}
 
 function Run-Setup {
+    Write-Output 'Running silent setup...'
     $process = Start-Process -FilePath $Installer -ArgumentList @('/S', "/D=$install") -WindowStyle Hidden -Wait -PassThru
-    if ($process.ExitCode -ne 0) { throw "Installer failed: $($process.ExitCode)" }
+    if ($process.ExitCode -ne 0) {
+        Show-InstallerDiagnostics
+        throw "Installer failed: $($process.ExitCode)"
+    }
     if (-not (Test-Path -LiteralPath (Join-Path $install 'focus-matrix.exe'))) { throw 'Installed app missing.' }
 }
 Run-Setup

@@ -7,6 +7,13 @@
   nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\focus-matrix-prepare.ps1" -DataDirectory "$APPDATA\com.focusmatrix.desktop" -InstallDirectory "$INSTDIR" ${_MODE}'
   Pop $R0
   Pop $R1
+  ; Optional local diagnostics contain only the helper's status/message.
+  ReadEnvStr $R2 "FOCUS_MATRIX_INSTALL_LOG"
+  ${If} $R2 != ""
+    FileOpen $R3 "$R2" a
+    FileWrite $R3 "prepare ${_MODE}: $R0 $R1$\r$\n"
+    FileClose $R3
+  ${EndIf}
   ${If} $R0 != 0
     DetailPrint "$R1"
     IfSilent +2

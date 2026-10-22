@@ -41,11 +41,24 @@ jobs:
           node-version: '24'
           cache: npm
       - name: Select Rust MSVC toolchain
+        id: rust
         shell: pwsh
         run: |
           rustup default stable
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           rustup target add x86_64-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "version=$(rustc --version)" >> $env:GITHUB_OUTPUT
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: rust-cache
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: windows-2022-rust-${{ steps.rust.outputs.version }}-${{ hashFiles('src-tauri/Cargo.lock') }}-${{ github.sha }}
+          restore-keys: |
+            windows-2022-rust-${{ steps.rust.outputs.version }}-${{ hashFiles('src-tauri/Cargo.lock') }}-
       - name: Install locked frontend dependencies
         run: npm ci
       - name: Validate public source and release metadata
@@ -86,6 +99,14 @@ jobs:
         run: npm run tauri build -- --no-bundle
       - name: Bundle Windows x64 NSIS installer
         run: npm run tauri bundle -- --bundles nsis --ci
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: github.ref == 'refs/heads/main' && steps.rust-cache.outputs.cache-hit != 'true'
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: ${{ steps.rust-cache.outputs.cache-primary-key }}
       - name: Verify installer and data preservation on disposable runner
         shell: pwsh
         run: |
