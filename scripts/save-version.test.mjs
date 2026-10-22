@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { saveVersion } from './save-version.mjs';
@@ -52,6 +52,18 @@ test('repeated saves without edits retain separate tags and never stage archives
   assert.equal(git('status', '--porcelain'), '');
   assert.equal(git('ls-tree', '-r', '--name-only', first.tag).includes('.env'), false);
   assert.equal(git('ls-tree', '-r', '--name-only', second.tag).includes('outputs/'), false);
+});
+
+test('repository root aliases resolve to the same directory but nested folders are rejected', t => {
+  const { root, git } = fixture(t);
+  const alias = root + '-alias';
+  symlinkSync(root, alias, process.platform === 'win32' ? 'junction' : 'dir');
+  t.after(() => unlinkSync(alias));
+  const saved = saveVersion(alias, 'Root path alias');
+  assert.equal(git('rev-parse', `${saved.tag}^{commit}`), saved.commit);
+  const nested = join(root, 'nested');
+  mkdirSync(nested);
+  assert.throws(() => saveVersion(nested), /own Git repository/);
 });
 
 test('an already tracked credential blocks saving even if it is now ignored', t => {

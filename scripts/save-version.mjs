@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -11,7 +11,13 @@ export function saveVersion(repository, description = 'Manual source snapshot') 
     encoding: 'utf8', windowsHide: true, maxBuffer: 32 * 1024 * 1024,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
-  if (resolve(git('rev-parse', '--show-toplevel').trim()) !== resolve(repository)) {
+  // Windows runners may expose TEMP via an 8.3 path or a directory junction.
+  // Compare actual directories while still rejecting a nested parent repository.
+  const canonicalPath = path => {
+    const resolved = realpathSync.native(resolve(path));
+    return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+  };
+  if (canonicalPath(git('rev-parse', '--show-toplevel').trim()) !== canonicalPath(repository)) {
     throw new Error('The project must have its own Git repository.');
   }
   // Check tracked files too: .gitignore does not protect an already tracked secret.
