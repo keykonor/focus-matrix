@@ -47,3 +47,12 @@ focus-matrix.json
 .window-state.json
 .update-*.json
 *.pending-write*
+*.pem
+*.key
+*.sqlite
+*.sqlite3
+*.db
+*.dmp
+focus-matrix.corrupt-*.json
+.superpowers/
+.worktrees/

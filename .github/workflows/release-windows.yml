@@ -1,0 +1,137 @@
+name: Windows build and release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v[0-9]*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish a Release after all checks pass
+        type: boolean
+        default: false
+      tag:
+        description: Release tag matching the desktop version
+        type: string
+        default: v0.2.0
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 60
+    env:
+      CARGO_TERM_COLOR: always
+      RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || inputs.tag || 'v0.2.0' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Select Rust MSVC toolchain
+        shell: pwsh
+        run: |
+          rustup default stable
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          rustup target add x86_64-pc-windows-msvc
+      - name: Install locked frontend dependencies
+        run: npm ci
+      - name: Validate public source and release metadata
+        shell: pwsh
+        run: |
+          npm run release:check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          if ($env:RELEASE_TAG -cne "v$version") { throw 'Release tag and source version differ.' }
+          $existing = @(git tag --list -- $env:RELEASE_TAG)
+          if ($existing.Count -gt 0) {
+            $tagCommit = git rev-parse --verify "$($env:RELEASE_TAG)^{commit}"
+            if ($LASTEXITCODE -ne 0 -or $tagCommit -cne $env:GITHUB_SHA) { throw 'Existing source tag does not match the tested commit.' }
+          }
+      - name: Frontend tests
+        run: npm test
+      - name: Source snapshot tests
+        run: npm run version:test
+      - name: Complete snapshot and installer preparation tests
+        shell: pwsh
+        run: |
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-update-preservation.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-installer-preparation.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Native persistence and history tests
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml --lib
+      - name: Isolated midnight archive and UI checks
+        run: npm run check:completed
+      - name: Build official embedded-frontend program
+        run: npm run tauri build -- --no-bundle
+      - name: Bundle Windows x64 NSIS installer
+        run: npm run tauri bundle -- --bundles nsis --ci
+      - name: Verify installer and data preservation on disposable runner
+        shell: pwsh
+        run: |
+          $installers = @(Get-ChildItem src-tauri/target/release/bundle/nsis/*-setup.exe)
+          if ($installers.Count -ne 1) { throw 'Expected exactly one installer.' }
+          ./scripts/check-windows-installer.ps1 -Installer $installers[0].FullName
+      - name: Prepare explicit release assets and checksums
+        shell: pwsh
+        run: ./scripts/package-windows-release.ps1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-x64-release
+          path: outputs/release/
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    needs: windows
+    if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || (github.event_name == 'workflow_dispatch' && inputs.publish)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || inputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: windows-x64-release
+          path: release
+      - name: Verify assets and publish once
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd release && sha256sum -c SHA256SUMS.txt)
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo 'Release already exists; refusing to overwrite it.'
+            exit 1
+          fi
+          git fetch --tags origin
+          if git show-ref --verify --quiet "refs/tags/$RELEASE_TAG"; then
+            test "$(git rev-parse "$RELEASE_TAG^{commit}")" = "$GITHUB_SHA" || {
+              echo 'Existing source tag differs from the tested build; refusing publication.'
+              exit 1
+            }
+          else
+            gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+              -f "ref=refs/tags/$RELEASE_TAG" -f "sha=$GITHUB_SHA" >/dev/null
+          fi
+          gh release create "$RELEASE_TAG" release/* \
+            --verify-tag --target "$GITHUB_SHA" --title "Focus Matrix ${RELEASE_TAG#v}" \
+            --notes-file "docs/releases/$RELEASE_TAG.md" --latest
