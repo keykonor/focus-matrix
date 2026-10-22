@@ -10,6 +10,14 @@ function Assert-FocusMatrixStopped([string[]]$ProcessNames) {
     }
 }
 
+function Get-InstallerFileSha256([string]$Path) {
+    # NSIS may launch a Windows PowerShell host without the Utility hash command.
+    $stream = [IO.File]::OpenRead($Path)
+    $algorithm = [Security.Cryptography.SHA256]::Create()
+    try { return [BitConverter]::ToString($algorithm.ComputeHash($stream)).Replace('-', '') }
+    finally { $algorithm.Dispose(); $stream.Dispose() }
+}
+
 function Backup-FocusMatrixInstallerData([string]$DataDirectory, [string[]]$ExecutablePaths) {
     $sources = @()
     if (Test-Path -LiteralPath $DataDirectory -PathType Container) {
@@ -40,8 +48,8 @@ function Backup-FocusMatrixInstallerData([string]$DataDirectory, [string[]]$Exec
         $destination = Join-Path $backup $item.name
         $null = New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force
         Copy-Item -LiteralPath $item.source -Destination $destination -ErrorAction Stop
-        $hash = (Get-FileHash -LiteralPath $item.source -Algorithm SHA256).Hash
-        if ((Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash -ne $hash) { throw 'Backup verification failed. Installation stopped.' }
+        $hash = Get-InstallerFileSha256 $item.source
+        if ((Get-InstallerFileSha256 $destination) -ne $hash) { throw 'Backup verification failed. Installation stopped.' }
         $entries += [pscustomobject]@{ name=$item.name; source=$item.source; size=(Get-Item -LiteralPath $destination).Length; sha256=$hash }
     }
     $manifest = @{ createdAt=[DateTime]::Now.ToString('o'); kind='nsis-before-change'; files=@($entries) }

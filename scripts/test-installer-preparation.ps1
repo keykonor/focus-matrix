@@ -34,5 +34,13 @@ foreach ($entry in $manifest.files) {
 if ((Get-FileHash -LiteralPath (Join-Path $dataRoot 'focus-matrix.json')).Hash -ne $originalHash) { throw 'Installer preparation modified live data.' }
 $second = Backup-FocusMatrixInstallerData -DataDirectory $dataRoot -ExecutablePaths @($oldExe)
 if ($second -eq $backup -or -not (Test-Path -LiteralPath $backup)) { throw 'An existing backup was overwritten.' }
+$withoutHashCommand = & {
+    function Get-FileHash { throw 'Get-FileHash is unavailable in this installer host.' }
+    Backup-FocusMatrixInstallerData -DataDirectory $dataRoot -ExecutablePaths @($oldExe)
+}
+$independentManifest = [IO.File]::ReadAllText((Join-Path $withoutHashCommand 'manifest.json'), [Text.Encoding]::UTF8) | ConvertFrom-Json
+foreach ($entry in $independentManifest.files) {
+    if ((Get-FileHash -LiteralPath (Join-Path $withoutHashCommand $entry.name)).Hash -ne $entry.sha256) { throw 'Backup without Get-FileHash has an invalid checksum.' }
+}
 if ($null -ne (Backup-FocusMatrixInstallerData -DataDirectory (Join-Path $testRoot 'new-user') -ExecutablePaths @())) { throw 'Fresh install unexpectedly created a data backup.' }
 Write-Output 'PASS: running app blocked; exact user data, history, pending journal, encrypted settings and old exe backed up; old backups excluded; repeated backups immutable; live data unchanged.'
