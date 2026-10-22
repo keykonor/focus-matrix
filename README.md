@@ -33,6 +33,7 @@ Get-FileHash -LiteralPath .\FocusMatrix-Windows-x64-setup.exe -Algorithm SHA256
 ```
 
 GitHub 自动生成的 “Source code” ZIP/TAR 是源码，不能直接当作安装包运行。
+0.2.0 的实际构建、安装验收和下载校验见 [发布验收记录](docs/releases/verification-v0.2.0.md)。
 
 ## 使用与退出
 

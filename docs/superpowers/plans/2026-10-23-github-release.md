@@ -32,8 +32,8 @@
 - [x] 1. Add isolated PowerShell tests for installer preparation; observe failure before implementing backup and running-process checks.
 - [x] 2. Add MIT, public README, release notes, historical inventory, security/third-party notices, and unify version metadata.
 - [x] 3. Add NSIS hooks and a Windows release workflow with tests, formal build, installer preservation smoke checks and explicit release assets.
-- [ ] 4. Run local checks, review the upload set/history, preserve the finished source snapshot, and create/push the public repository and original tags.
-- [ ] 5. Trigger and monitor GitHub Actions, correct real failures, verify the published release/download checksums, and report links and limitations.
+- [x] 4. Run local checks, review the upload set/history, preserve the finished source snapshot, and create/push the public repository and original tags.
+- [x] 5. Trigger and monitor GitHub Actions, correct real failures, verify the published release/download checksums, and report links and limitations.
 
 ## Decisions and progress
 
@@ -45,4 +45,4 @@
 - Existing cloud endpoints remain unchanged. README explicitly limits the public package's cloud functionality; no personal credentials are distributed.
 - Local verification: 37 Vitest, 4 source-snapshot tests, full-update PowerShell checks, installer preparation checks, frontend build and isolated midnight/layout browser acceptance passed. Git-writing tests and generated assets required sandbox escalation; source behavior was not changed to bypass the sandbox.
 - Desktop history: 363 blobs scanned; separate web history: 191 blobs scanned. No private paths or common credential/share-link patterns found. This is a scoped scan, not a guarantee against all secret formats.
-- The public repository was created empty. Subsequent push/build/release status is recorded by GitHub commits, Actions and Releases, rather than inventing a pre-build completion claim in this plan.
+- Published [0.2.0](https://github.com/keykonor/focus-matrix/releases/tag/v0.2.0) from commit `34af03c1c41e61712e327264af9e0760cbd46839`. Both jobs in [run 39828482672](https://github.com/keykonor/focus-matrix/actions/runs/39828482672) succeeded. See [the verification record](../../releases/verification-v0.2.0.md) for checksums and limits.
