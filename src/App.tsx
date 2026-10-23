@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type SyntheticEvent } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -57,6 +57,20 @@ export default function App() {
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const closingRef = useRef(false);
   const restoringRef = useRef(false);
+  const readyRef = useRef(false);
+  const interactionRoot = useRef<HTMLDivElement>(null);
+  const [interactionLocked, setInteractionLocked] = useState(true);
+  const canEdit = useCallback(() => readyRef.current && !restoringRef.current && !updatingRef.current && !closingRef.current, []);
+  const refreshInteractionLock = useCallback(() => {
+    const locked = !canEdit();
+    // Block native input immediately, before React renders the state change.
+    if (interactionRoot.current) interactionRoot.current.inert = locked;
+    setInteractionLocked(locked);
+  }, [canEdit]);
+  useLayoutEffect(() => { readyRef.current = ready; refreshInteractionLock(); }, [ready, refreshInteractionLock]);
+  const protectInteraction = (event: SyntheticEvent) => {
+    if (!canEdit()) { event.preventDefault(); event.stopPropagation(); }
+  };
   dataRef.current = { tasks, settings, dailyMemos, syncMarks, completedTasks, taskDay };
 
   const flushSave = useCallback(async (forUpdate = false) => {
@@ -67,7 +81,7 @@ export default function App() {
     const current = dataRef.current;
     const snapshot = forUpdate || rolloverGuard.current === localDateKey() ? current : rolloverCompletedTasks(current, localDateKey());
     const rollingOver = snapshot !== current;
-    if (rollingOver) restoringRef.current = true;
+    if (rollingOver) { restoringRef.current = true; refreshInteractionLock(); }
     const next = saveQueue.current.catch(() => undefined).then(() => saveData(store, snapshot));
     saveQueue.current = next;
     try {
@@ -81,24 +95,25 @@ export default function App() {
       setSaveError(false); return true;
     }
     catch (error) { setSaveError(true); logError('自动保存失败', error); return false; }
-    finally { if (rollingOver) restoringRef.current = false; }
-  }, []);
+    finally { if (rollingOver) { restoringRef.current = false; refreshInteractionLock(); } }
+  }, [refreshInteractionLock]);
 
   const readContent = useCallback(() => ({tasks:dataRef.current.tasks,dailyMemos:dataRef.current.dailyMemos}),[]);
   const applyCloud = useCallback(async (delivery:CloudDelivery) => {
+    if (!canEdit()) throw Error('当前内容正在加载或保存，同步稍后重试');
     if(!(await flushSave())) throw Error('无法保存当前内容，同步稍后重试');
-    if(restoringRef.current) throw Error('正在恢复版本，同步稍后重试');
+    if(!canEdit()) throw Error('当前内容正在加载或保存，同步稍后重试');
     const current=dataRef.current;
     const merged=mergeContent(delivery.sentContent,{tasks:current.tasks,dailyMemos:current.dailyMemos},delivery.snapshot.content);
     const next={...current,...merged.content,syncMarks:delivery.snapshot.marks};
     if(same(next,current))return;
-    restoringRef.current=true;
+    restoringRef.current=true;refreshInteractionLock();
     if(saveTimer.current){clearTimeout(saveTimer.current);saveTimer.current=null;}
     try {const store=storeRef.current;if(!store)throw Error('本地存储未就绪');
       const operation=saveQueue.current.catch(()=>undefined).then(()=>saveData(store,next));saveQueue.current=operation;await operation;
       dataRef.current=next;setTasks(next.tasks);setDailyMemos(next.dailyMemos);setSyncMarks(next.syncMarks);setSaveError(false);
-    }catch(error){setSaveError(true);throw error;}finally{restoringRef.current=false;}
-  },[flushSave]);
+    }catch(error){setSaveError(true);throw error;}finally{restoringRef.current=false;refreshInteractionLock();}
+  },[flushSave,canEdit,refreshInteractionLock]);
   const cloud=useCloudSharing(ready && !updating,{flush:flushSave,read:readContent,apply:applyCloud});
 
   useEffect(() => {
@@ -153,6 +168,35 @@ export default function App() {
     }).catch((error) => logError('设置开机启动失败', error));
   }, [settings.alwaysOnTop, settings.desktopMode, settings.autostart, ready]);
 
+  const closeApplication = useCallback(async (forceQuit = false) => {
+    if (!readyRef.current || closingRef.current) return;
+    closingRef.current = true; refreshInteractionLock();
+    let exited = false;
+    try {
+      const nonce = await invoke<string | null>('read_update_request');
+      if (nonce) { updatingRef.current = true; setUpdating(true); }
+      if (!(await flushSave(Boolean(nonce)))) throw new Error('退出前保存失败');
+      if (nonce) {
+        await archiveContent(readContent(), 'update-backup');
+        await saveWindowState(windowStateFlags);
+        await invoke('finish_update_prepare', { nonce });
+      } else await saveWindowState(windowStateFlags).catch((error) => logError('保存窗口状态失败', error));
+      if (nonce || forceQuit || dataRef.current.settings.closeBehavior === 'quit') {
+        await invoke('quit_app'); exited = true;
+      } else await windowHandle.hide();
+    } catch (error) {
+      setSaveError(true); logError('保存退出失败，已保留当前内容', error);
+      if (forceQuit) await windowHandle.show().catch((cause) => logError('显示窗口失败', cause));
+    } finally {
+      // A successful quit stays locked until the native process exits. Failure
+      // and hide-to-tray both restore interaction, without releasing other locks.
+      if (!exited) {
+        updatingRef.current = false; setUpdating(false); closingRef.current = false;
+        refreshInteractionLock();
+      }
+    }
+  }, [flushSave, readContent, refreshInteractionLock]);
+
   useEffect(() => {
     if (!ready) return;
     let disposed = false;
@@ -160,39 +204,11 @@ export default function App() {
     const register = async () => {
       unlisteners.push(await windowHandle.onCloseRequested(async (event) => {
         event.preventDefault();
-        if (closingRef.current) return;
-        closingRef.current = true;
-        try {
-          const nonce = await invoke<string | null>('read_update_request');
-          if (nonce) {
-            updatingRef.current = true; setUpdating(true);
-            if (!(await flushSave(true))) throw new Error('更新前保存失败');
-            await archiveContent(readContent(), 'update-backup');
-            await saveWindowState(windowStateFlags);
-            await invoke('finish_update_prepare', { nonce });
-            await invoke('quit_app');
-            return;
-          }
-        } catch (error) {
-          updatingRef.current = false; setUpdating(false); closingRef.current = false;
-          setSaveError(true); logError('更新准备失败，已停止更新', error); return;
-        }
-        if (!(await flushSave())) { closingRef.current = false; return; }
-        if (dataRef.current.settings.closeBehavior === 'quit') {
-          await saveWindowState(windowStateFlags).catch((error) => logError('保存窗口状态失败', error));
-          await invoke('quit_app');
-        } else {
-          await windowHandle.hide().catch((error) => logError('隐藏窗口失败', error));
-        }
-        closingRef.current = false;
+        await closeApplication();
       }));
       unlisteners.push(await listen('focus-matrix://open-settings', () => setSettingsOpen(true)));
       unlisteners.push(await listen('focus-matrix://quit-requested', () => {
-        void (async () => {
-          if (!(await flushSave())) { await windowHandle.show(); return; }
-          await saveWindowState(windowStateFlags).catch((error) => logError('保存窗口状态失败', error));
-          await invoke('quit_app');
-        })();
+        void closeApplication(true);
       }));
       let windowTimer: ReturnType<typeof setTimeout> | null = null;
       const queueWindowSave = () => {
@@ -205,10 +221,10 @@ export default function App() {
     };
     void register().catch((error) => logError('窗口事件注册失败', error));
     return () => { disposed = true; unlisteners.forEach((fn) => fn()); };
-  }, [ready, flushSave, readContent]);
+  }, [ready, closeApplication]);
 
   const addTask = (quadrant: QuadrantType, afterId?: string) => {
-    if(restoringRef.current || updatingRef.current)return;
+    if(!canEdit())return;
     const task = newTask(quadrant);
     setTasks((current) => {
       const index = afterId ? current.findIndex((item) => item.id === afterId) : -1;
@@ -217,15 +233,15 @@ export default function App() {
     });
     setFocusId(task.id);
   };
-  const updateTask = (id: string, patch: Partial<Pick<Task, 'text' | 'completed'>>) => {if(!restoringRef.current && !updatingRef.current)setTasks((current) => current.map((task) => task.id === id ? changeTask(task, patch) : task));};
-  const deleteTask = (id: string) => {if(!restoringRef.current && !updatingRef.current)setTasks((current) => current.filter((task) => task.id !== id));};
-  const moveTask = (id: string, quadrant: QuadrantType) => {if(!restoringRef.current && !updatingRef.current)setTasks((current) => current.map((task) => task.id === id && task.quadrant !== quadrant ? changeTask(task, { quadrant }) : task));};
-  const onSettingsChange = (next: AppSettings) => {if(!restoringRef.current && !updatingRef.current)setSettings(next);};
-  const updateMemo = (date: string, period: MemoPeriod, text: string) => {if(!restoringRef.current && !updatingRef.current)setDailyMemos((current) => changeMemo(current, date, period, text));};
-  const toggleCalendar = () => {if(!restoringRef.current && !updatingRef.current)setSettings((current) => ({ ...current, calendarOpen: !current.calendarOpen }));};
+  const updateTask = (id: string, patch: Partial<Pick<Task, 'text' | 'completed'>>) => {if(canEdit())setTasks((current) => current.map((task) => task.id === id ? changeTask(task, patch) : task));};
+  const deleteTask = (id: string) => {if(canEdit())setTasks((current) => current.filter((task) => task.id !== id));};
+  const moveTask = (id: string, quadrant: QuadrantType) => {if(canEdit())setTasks((current) => current.map((task) => task.id === id && task.quadrant !== quadrant ? changeTask(task, { quadrant }) : task));};
+  const onSettingsChange = (next: AppSettings) => {if(canEdit())setSettings(next);};
+  const updateMemo = (date: string, period: MemoPeriod, text: string) => {if(canEdit())setDailyMemos((current) => changeMemo(current, date, period, text));};
+  const toggleCalendar = () => {if(canEdit())setSettings((current) => ({ ...current, calendarOpen: !current.calendarOpen }));};
   const openHistory = async () => { await flushSave(); setHistoryOpen(true); };
   const saveVersion = async () => {
-    if (savingVersionRef.current || restoringRef.current) throw new Error('正在保存或恢复，请稍后重试');
+    if (savingVersionRef.current || !canEdit()) throw new Error('正在保存或恢复，请稍后重试');
     savingVersionRef.current = true; setSavingVersion(true);
     try {
       if (!(await flushSave())) throw new Error('Current content could not be saved');
@@ -243,10 +259,12 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [saveNotice]);
   const restoreVersion = async (version: ContentVersion) => {
+    if (!canEdit()) throw new Error('正在加载或保存，请稍后重试');
     if (!(await flushSave())) throw new Error('Current content could not be saved');
+    if (!canEdit()) throw new Error('正在加载或保存，请稍后重试');
     const store = storeRef.current;
     if (!store) throw new Error('Data store is not ready');
-    restoringRef.current = true;
+    restoringRef.current = true; refreshInteractionLock();
     if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null; }
     const current = { ...dataRef.current };
     const restored = { ...current, ...restoreTaskContent(current, version.content) };
@@ -260,15 +278,18 @@ export default function App() {
       dataRef.current = restored;
       setTasks(restored.tasks); setFocusId(null); setSaveError(false);
     } catch (error) { setSaveError(true); throw error; }
-    finally { restoringRef.current = false; }
+    finally { restoringRef.current = false; refreshInteractionLock(); }
   };
 
-  return <div className={`app font-${settings.fontSize}`} style={{ '--surface-alpha': settings.opacity / 100 } as CSSProperties}>
-    <TitleBar onSettings={() => setSettingsOpen(true)} taskCount={tasks.filter((task) => !task.completed).length}
-      today={today} calendarOpen={settings.calendarOpen} onCalendar={toggleCalendar} onCompleted={() => setCompletedOpen(true)} onSave={() => void saveFromMain()} saving={savingVersion} onHistory={() => void openHistory()} onCloud={() => {setCloudSection('share');setCloudOpen(true);}} onPhone={() => {setCloudSection('phone');setCloudOpen(true);}} cloudError={!!cloud.status.error} disabled={!ready || updating} />
+  return <div className={`app font-${settings.fontSize}`} aria-busy={interactionLocked} style={{ '--surface-alpha': settings.opacity / 100 } as CSSProperties}>
     {saveNotice && <div className="save-notice" role="status">{saveNotice}</div>}
     {updating && <div className="save-error" role="status">正在保存当前完整版本并准备更新，请稍候…</div>}
     {saveError && <div className="save-error" role="alert">本地读取或保存失败，原文件和备份仍保留。请检查磁盘空间、文件权限或从更新备份恢复。</div>}
+    <div ref={interactionRoot} inert={interactionLocked} aria-disabled={interactionLocked} style={{ display: 'contents' }}
+      onBeforeInputCapture={protectInteraction} onInputCapture={protectInteraction} onChangeCapture={protectInteraction}
+      onClickCapture={protectInteraction} onKeyDownCapture={protectInteraction} onDragStartCapture={protectInteraction} onDropCapture={protectInteraction}>
+    <TitleBar onSettings={() => setSettingsOpen(true)} taskCount={tasks.filter((task) => !task.completed).length}
+      today={today} calendarOpen={settings.calendarOpen} onCalendar={toggleCalendar} onCompleted={() => setCompletedOpen(true)} onSave={() => void saveFromMain()} saving={savingVersion} onHistory={() => void openHistory()} onCloud={() => {setCloudSection('share');setCloudOpen(true);}} onPhone={() => {setCloudSection('phone');setCloudOpen(true);}} cloudError={!!cloud.status.error} disabled={interactionLocked} />
     {settings.calendarOpen ? <CalendarPanel today={today} memos={dailyMemos} marks={syncMarks} onChange={updateMemo} onClose={toggleCalendar} /> : <main className="matrix" aria-label="艾森豪威尔任务矩阵">
       {quadrants.map((quadrant) => <Quadrant key={quadrant} quadrant={quadrant} marks={syncMarks} tasks={tasks.filter((task) => task.quadrant === quadrant && (settings.showCompleted || !task.completed))} focusId={focusId} fontSize={settings.fontSize} onAdd={addTask} onChange={updateTask} onDelete={deleteTask} onMove={moveTask} />)}
     </main>}
@@ -276,5 +297,6 @@ export default function App() {
     {historyOpen && <HistoryModal onClose={() => setHistoryOpen(false)} onSaveVersion={saveVersion} onRestore={restoreVersion} />}
     {completedOpen && <CompletedTasksModal records={completedTasks} onClose={() => setCompletedOpen(false)} />}
     {cloudOpen && <CloudShareModal initialSection={cloudSection} status={cloud.status} busy={cloud.busy} onClose={() => setCloudOpen(false)} onSync={cloud.sync} onToggle={cloud.toggle} onEditing={cloud.editing} onRotate={cloud.rotate} />}
+    </div>
   </div>;
 }

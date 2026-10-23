@@ -3,6 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isPrivateSourcePath } from './private-source-path.mjs';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 
@@ -23,9 +24,8 @@ export function saveVersion(repository, description = 'Manual source snapshot') 
   // Check tracked files too: .gitignore does not protect an already tracked secret.
   const files = git('ls-files', '--cached', '--others', '--exclude-standard', '-z')
     .split('\0').filter(Boolean);
-  const sensitive = /(^|\/)(?:\.env(?:$|\.(?!example$))|\.dev\.vars|\.cloud-config|signing\/|backups\/|\.cloud-tools\/|\.edgeone\/)|\.(?:jks|keystore|p12|pfx|dpapi)$|^cloudbase\/cloudbaserc\.json$/i;
   for (const file of files) {
-    if (sensitive.test(file)) throw new Error(`Source snapshot refused a private file: ${file}`);
+    if (isPrivateSourcePath(file)) throw new Error(`Source snapshot refused a private file: ${file}`);
   }
   // Also reject copies of the locally configured server secrets in source files.
   const configPath = join(repository, 'cloudbase', 'cloudbaserc.json');

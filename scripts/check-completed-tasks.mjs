@@ -232,6 +232,197 @@ try {
   assert.deepEqual(midnightResult.settings, midnightSeed.settings);
   assert.deepEqual(errors, []);
   console.log('automatic midnight archive with no click, focus, visibility change or reopening: OK');
+
+  // Real React components with only the native IPC boundary paused. These data
+  // live in this browser profile, never the installed application's data path.
+  const interactionFailures = [];
+  const reloadInteraction = async (gates = [], settings = {}) => {
+    await evaluate(`sessionStorage.setItem('calendar-check-data', ${JSON.stringify(JSON.stringify({ ...seed, settings: { ...seed.settings, ...settings } }))});
+      sessionStorage.setItem('interaction-check-gates', ${JSON.stringify(JSON.stringify(gates))});
+      sessionStorage.setItem('repository-clock', '2026-10-16T12:00:00+08:00');
+      sessionStorage.removeItem('repository-clock-ticking'); sessionStorage.removeItem('cloud-check-delivery');
+      sessionStorage.removeItem('update-check-quit'); sessionStorage.removeItem('update-check-guard');`);
+    await send('Page.reload');
+    await wait('window.interactionCheck');
+    if (!gates.includes('read_local_data')) await wait("document.querySelector('.calendar-button')?.disabled === false");
+  };
+  const click = async selector => {
+    const point = await evaluate(`(() => { const r = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect(); return {x:r.x+r.width/2,y:r.y+r.height/2}; })()`);
+    await send('Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: 'left', clickCount: 1 });
+    await send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', clickCount: 1 });
+  };
+  const attemptInput = async (selector, text) => {
+    await evaluate(`document.activeElement?.blur(); document.querySelector(${JSON.stringify(selector)})?.focus()`);
+    await send('Input.insertText', { text });
+  };
+  const regression = async (name, run) => {
+    try { await run(); console.log(`${name}: OK`); }
+    catch (error) { interactionFailures.push(new Error(`${name}: ${error.message}`)); console.error(`${name}: FAILED: ${error.message}`); }
+  };
+  await regression('initial read protects edits, including failed loading', async () => {
+    await reloadInteraction(['read_local_data']);
+    await wait("window.interactionCheck.pending('read_local_data') > 0");
+    await click('.add-task');
+    assert.equal(await evaluate("document.querySelectorAll('.task-item').length"), 0, 'Startup accepted a task that loading would overwrite');
+    // Synthetic events also exercise the synchronous callback guard.
+    await evaluate("document.querySelector('.add-task').click()");
+    assert.equal(await evaluate("document.querySelectorAll('.task-item').length"), 0);
+    await evaluate("window.interactionCheck.release('read_local_data', true)");
+    await wait("document.querySelector('.save-error')");
+    await click('.add-task');
+    assert.equal(await evaluate("document.querySelectorAll('.task-item').length"), 0, 'Read failure exposed edits that cannot be saved');
+    await reloadInteraction(['read_local_data']);
+    await wait("window.interactionCheck.pending('read_local_data') > 0");
+    await evaluate("window.interactionCheck.release('read_local_data')");
+    await wait("document.querySelector('.calendar-button')?.disabled === false");
+    assert.deepEqual((await data()).tasks, seed.tasks);
+  });
+  await regression('cloud apply protects task input and unlocks after success/failure', async () => {
+    for (const fail of [false, true]) {
+      await reloadInteraction(); await delay(1800);
+      const delivery = { requestId: 'isolated-delivery', sentContent: { tasks: seed.tasks, dailyMemos: seed.dailyMemos }, conflicts: 0,
+        snapshot: { revision: 1, updatedAt: Date.now(), marks: {}, content: { tasks: seed.tasks.map(task => task.id === '未完成' ? { ...task, text: '云端合成修改' } : task), dailyMemos: seed.dailyMemos } } };
+      await evaluate(`sessionStorage.setItem('cloud-check-delivery', ${JSON.stringify(JSON.stringify(delivery))}); window.interactionCheck.pause('commit_local_data'); document.querySelector('.cloud-button').click()`);
+      await wait("Array.from(document.querySelectorAll('.cloud-buttons button')).some(button => button.textContent === '立即同步' && !button.disabled)");
+      await evaluate("Array.from(document.querySelectorAll('.cloud-buttons button')).find(button => button.textContent === '立即同步').click()");
+      await wait("window.interactionCheck.pending('commit_local_data') > 0");
+      const field = '.task-item[data-task-id="未完成"] textarea';
+      await attemptInput(field, '不应被接收然后丢弃的输入');
+      assert.equal(await evaluate(`document.activeElement === document.querySelector(${JSON.stringify(field)})`), false, 'Cloud apply left task input editable');
+      await evaluate(`window.interactionCheck.release('commit_local_data', ${fail})`);
+      await wait("document.querySelector('.calendar-button')?.disabled === false");
+      await evaluate("document.querySelector('[aria-label=\"关闭云端分享设置\"]').click()");
+      await attemptInput(field, '事务后编辑');
+      await wait("JSON.parse(sessionStorage.getItem('calendar-check-data')).tasks.some(task => task.text.includes('事务后编辑'))");
+      assert.equal((await data()).tasks.find(task => task.id === '未完成').text.includes('不应被接收'), false);
+    }
+  });
+  await regression('quit locks pending edits and repeated close events exit once', async () => {
+    await reloadInteraction([], { closeBehavior: 'quit' }); await delay(1800);
+    await evaluate("window.interactionCheck.pause('commit_local_data')");
+    const field = '.task-item[data-task-id="未完成"] textarea';
+    await attemptInput(field, '退出前已接受');
+    await evaluate("window.interactionCheck.emit('tauri://close-requested'); window.interactionCheck.emit('focus-matrix://quit-requested')");
+    await wait("window.interactionCheck.pending('commit_local_data') > 0");
+    await attemptInput(field, '退出过程中不应接收');
+    assert.equal(await evaluate(`document.activeElement === document.querySelector(${JSON.stringify(field)})`), false, 'Quit left task input editable while saving an older snapshot');
+    assert.equal(await evaluate('window.interactionCheck.quitCalls'), 0);
+    await evaluate("window.interactionCheck.release('commit_local_data')");
+    await wait('window.interactionCheck.quitCalls > 0'); await delay(100);
+    assert.equal(await evaluate('window.interactionCheck.quitCalls'), 1, 'Repeated close requests caused multiple exits');
+    assert.equal((await data()).tasks.find(task => task.id === '未完成').text.includes('退出前已接受'), true);
+    assert.equal((await data()).tasks.find(task => task.id === '未完成').text.includes('退出过程中'), false);
+  });
+  await regression('ordinary autosave continues accepting and persists newer input', async () => {
+    await reloadInteraction(); await delay(1800);
+    const field = '.task-item[data-task-id="未完成"] textarea';
+    await evaluate("window.interactionCheck.pause('commit_local_data')");
+    await attemptInput(field, '普通保存第一段');
+    await wait("window.interactionCheck.pending('commit_local_data') > 0");
+    await attemptInput(field, '普通保存第二段');
+    assert.equal(await evaluate(`document.activeElement === document.querySelector(${JSON.stringify(field)})`), true);
+    await evaluate("window.interactionCheck.release('commit_local_data')");
+    await wait("JSON.parse(sessionStorage.getItem('calendar-check-data')).tasks.some(task => task.text.includes('普通保存第一段') && task.text.includes('普通保存第二段'))");
+  });
+  await regression('midnight transaction locks memos, settings and drag/drop; failure unlocks', async () => {
+    for (const surface of ['tasks', 'memos', 'settings']) for (const fail of [false, true]) {
+      await reloadInteraction([], { calendarOpen: surface === 'memos' }); await delay(600);
+      if (surface === 'settings') await click('.settings-button');
+      const before = await data();
+      // Focus-triggered rollover starts synchronously. Dispatching the attempts
+      // in this same JS turn covers the gap before React commits a lock render.
+      const during = await evaluate(`(() => {
+        window.interactionCheck.pause('commit_local_data');
+        window.setTestDay('2026-10-17T00:02:00+08:00');
+        document.querySelector('.add-task')?.click();
+        const item = document.querySelector('.task-item[data-task-id="未完成"] textarea');
+        const memo = document.querySelector('.memo-text');
+        const field = ${JSON.stringify(surface)} === 'memos' ? memo : item;
+        field?.focus();
+        document.querySelector('.settings-list input[type=checkbox]')?.click();
+        const quadrant = document.querySelector('.quadrant-important-not-urgent');
+        const transfer = new DataTransfer(); transfer.setData('text/task-id', '未完成');
+        quadrant?.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer }));
+        return { focused: !!field && document.activeElement === field, busy: document.querySelector('.app').getAttribute('aria-busy') };
+      })()`);
+      assert.equal(during.focused, false, `${surface}: synchronous lock left input focusable`);
+      await wait("window.interactionCheck.pending('commit_local_data') > 0");
+      assert.equal(await evaluate("document.querySelector('.app').getAttribute('aria-busy')"), 'true');
+      const field = surface === 'memos' ? '.memo-text' : '.task-item[data-task-id="未完成"] textarea';
+      await attemptInput(field, '独占事务期间不能接收');
+      assert.equal(await evaluate(`document.activeElement === document.querySelector(${JSON.stringify(field)})`), false);
+      assert.deepEqual(await data(), before, 'An input or drop altered persisted content before the transaction committed');
+      await evaluate(`window.interactionCheck.release('commit_local_data', ${fail})`);
+      await wait("document.querySelector('.calendar-button')?.disabled === false");
+      const after = await data();
+      assert.deepEqual(after.settings, before.settings, 'Settings changed while locked');
+      assert.deepEqual(after.dailyMemos, before.dailyMemos, 'Memo changed while locked');
+      assert.equal(after.tasks.find(task => task.id === '未完成').quadrant, 'important-urgent');
+      if (surface === 'settings') await click('[aria-label="关闭设置"]');
+      await attemptInput(field, '独占事务后可继续');
+      await wait("JSON.stringify(JSON.parse(sessionStorage.getItem('calendar-check-data'))).includes('独占事务后可继续')");
+    }
+  });
+  await regression('failed quit retains edits and unlocks for retry', async () => {
+    await reloadInteraction([], { closeBehavior: 'quit' }); await delay(600);
+    const field = '.task-item[data-task-id="未完成"] textarea';
+    await evaluate("window.interactionCheck.pause('commit_local_data')");
+    await attemptInput(field, '退出失败也保留');
+    await evaluate("window.interactionCheck.emit('focus-matrix://quit-requested')");
+    await wait("window.interactionCheck.pending('commit_local_data') > 0");
+    await evaluate("window.interactionCheck.release('commit_local_data', true)");
+    await wait("document.querySelector('.calendar-button')?.disabled === false && document.querySelector('.save-error')");
+    assert.equal(await evaluate('window.interactionCheck.quitCalls'), 0);
+    await attemptInput(field, '失败后继续编辑');
+    await wait("JSON.parse(sessionStorage.getItem('calendar-check-data')).tasks.some(task => task.text.includes('退出失败也保留') && task.text.includes('失败后继续编辑'))");
+    await evaluate("window.interactionCheck.emit('focus-matrix://quit-requested')");
+    await wait('window.interactionCheck.quitCalls === 1');
+  });
+  await regression('history restore locks pending writes and preserves current memos', async () => {
+    for (const fail of [false, true]) {
+      await reloadInteraction(); await delay(600);
+      await attemptInput('.task-item[data-task-id="未完成"] textarea', '恢复前新内容');
+      await wait("JSON.parse(sessionStorage.getItem('calendar-check-data')).tasks.some(task => task.text.includes('恢复前新内容'))");
+      const before = await data();
+      await click('[aria-label="打开历史记录"]');
+      await wait("document.querySelector('.history-version:not(:disabled)') && document.querySelector('.history-restore:not(:disabled)')");
+      // Pick an actual saved version with the original task, rather than
+      // asserting anything about the fake IPC/history implementation.
+      const oldVersion = await evaluate("JSON.parse(sessionStorage.getItem('content-check-history')).reverse().find(version => version.content.tasks.some(task => task.id === '未完成' && !task.text.includes('恢复前新内容')))" );
+      assert.ok(oldVersion, 'No pre-edit history version');
+      await evaluate(`document.querySelector('[data-version-id="${oldVersion.id}"]').click()`);
+      await wait("document.querySelector('.history-restore:not(:disabled)') && !document.querySelector('.history-preview [aria-busy=true]')");
+      await evaluate("document.querySelector('.history-restore').click(); window.interactionCheck.pause('commit_local_data')");
+      await wait("document.querySelector('.history-confirm-button:not(:disabled)')");
+      await evaluate("document.querySelector('.history-confirm-button').click()");
+      await wait("window.interactionCheck.pending('commit_local_data') > 0");
+      await attemptInput('.task-item[data-task-id="未完成"] textarea', '恢复中不能输入');
+      assert.equal(await evaluate("document.activeElement?.matches('.task-text')"), false);
+      await evaluate(`window.interactionCheck.release('commit_local_data', ${fail})`);
+      await wait("document.querySelector('.calendar-button')?.disabled === false");
+      assert.deepEqual((await data()).dailyMemos, before.dailyMemos);
+      assert.deepEqual((await data()).tasks, fail ? before.tasks : oldVersion.content.tasks);
+      await click('.history-close');
+      await attemptInput('.task-item[data-task-id="未完成"] textarea', '恢复结束后继续');
+      await wait("JSON.parse(sessionStorage.getItem('calendar-check-data')).tasks.some(task => task.text.includes('恢复结束后继续'))");
+    }
+  });
+  await regression('update exit preserves the nonce protocol and locks before the read returns', async () => {
+    await reloadInteraction(); await delay(600);
+    await attemptInput('.task-item[data-task-id="未完成"] textarea', '更新前内容');
+    const count = await evaluate("document.querySelectorAll('.task-item').length");
+    await evaluate("sessionStorage.setItem('update-check-request', 'isolated-update-nonce'); window.interactionCheck.pause('read_update_request'); window.interactionCheck.emit('tauri://close-requested'); document.querySelector('.add-task').click()");
+    await wait("window.interactionCheck.pending('read_update_request') > 0");
+    assert.equal(await evaluate("document.querySelectorAll('.task-item').length"), count, 'Close accepted edits before the update-request read finished');
+    assert.equal(await evaluate("document.querySelector('.app [inert]') !== null"), true);
+    await evaluate("window.interactionCheck.release('read_update_request')");
+    await wait('window.interactionCheck.quitCalls === 1');
+    assert.equal(await evaluate("sessionStorage.getItem('update-check-ready')"), 'isolated-update-nonce');
+    assert.equal((await data()).tasks.some(task => task.text.includes('更新前内容')), true);
+    await evaluate("sessionStorage.removeItem('update-check-request'); sessionStorage.removeItem('update-check-ready')");
+  });
+  assert.deepEqual(errors, [], 'Browser exceptions or network failures');
+  if (interactionFailures.length) throw new AggregateError(interactionFailures, 'Interaction preservation regressions failed');
 } finally {
   if (socket?.readyState === WebSocket.OPEN) { await send('Browser.close').catch(() => {}); socket.close(); }
   browser.kill(); await new Promise(resolve => server.close(resolve));
