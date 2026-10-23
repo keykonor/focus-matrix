@@ -31,6 +31,7 @@ jobs:
     env:
       CARGO_TERM_COLOR: always
       RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || inputs.tag || 'v0.2.0' }}
+      RELEASE_PUBLISH: ${{ inputs.publish }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -66,13 +67,10 @@ jobs:
         run: |
           npm run release:check
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
-          if ($env:RELEASE_TAG -cne "v$version") { throw 'Release tag and source version differ.' }
-          $existing = @(git tag --list -- $env:RELEASE_TAG)
-          if ($existing.Count -gt 0) {
-            $tagCommit = git rev-parse --verify "$($env:RELEASE_TAG)^{commit}"
-            if ($LASTEXITCODE -ne 0 -or $tagCommit -cne $env:GITHUB_SHA) { throw 'Existing source tag does not match the tested commit.' }
-          }
+          ./scripts/validate-release-ref.ps1
+      - name: Release ref regression tests
+        shell: pwsh
+        run: ./scripts/test-release-ref.ps1
       - name: Frontend tests
         shell: pwsh
         run: |

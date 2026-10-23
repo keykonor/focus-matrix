@@ -20,7 +20,8 @@
     "test:update": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-update-preservation.ps1",
     "android:deploy": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/deploy-android.ps1",
     "android:deploy:test": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-android-deploy.ps1",
-    "release:check": "node scripts/check-public-release.mjs"
+    "release:check": "node scripts/check-public-release.mjs",
+    "test:source-policy": "node --test scripts/public-source-policy.test.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",

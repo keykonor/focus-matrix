@@ -2,6 +2,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { mockIPC, mockWindows } from '@tauri-apps/api/mocks';
+import { emit } from '@tauri-apps/api/event';
 import '../src/styles.css';
 
 const saved = sessionStorage.getItem('calendar-check-data');
@@ -20,13 +21,31 @@ const record = (content: import('../src/contentHistory').HistoryContent, reason:
   sessionStorage.setItem('content-check-history', JSON.stringify(versions));
   return version;
 };
+// Only this browser fixture can pause IPC; production code has no test hooks.
+const paused = new Set<string>(JSON.parse(sessionStorage.getItem('interaction-check-gates') ?? '[]'));
+const waiting = new Map<string, { resolve: () => void; reject: (error: Error) => void }[]>();
+const interactionCheck = {
+  pause: (command: string) => { paused.add(command); },
+  pending: (command: string) => waiting.get(command)?.length ?? 0,
+  release: (command: string, fail = false) => {
+    paused.delete(command);
+    const pending = waiting.get(command) ?? []; waiting.delete(command);
+    for (const item of pending) fail ? item.reject(new Error('Simulated delayed IPC failure')) : item.resolve();
+  },
+  emit,
+  quitCalls: 0,
+};
+Object.assign(window, { interactionCheck });
 mockWindows('main');
-mockIPC((command, payload) => {
+mockIPC(async (command, payload) => {
+  if (paused.has(command)) await new Promise<void>((resolve, reject) => {
+    waiting.set(command, [...(waiting.get(command) ?? []), { resolve, reject }]);
+  });
   if (command === 'read_local_data') return { data: structuredClone(store), guardDate: sessionStorage.getItem('update-check-guard'), updateNonce: sessionStorage.getItem('update-check-nonce') };
   if (command === 'ack_update_restore') { sessionStorage.setItem('update-check-verified', '1'); sessionStorage.removeItem('update-check-nonce'); return; }
   if (command === 'read_update_request') return sessionStorage.getItem('update-check-request');
   if (command === 'finish_update_prepare') { sessionStorage.setItem('update-check-ready', String(payload?.nonce)); return; }
-  if (command === 'quit_app') { sessionStorage.setItem('update-check-quit', '1'); return; }
+  if (command === 'quit_app') { interactionCheck.quitCalls++; sessionStorage.setItem('update-check-quit', '1'); return; }
   if (command === 'commit_local_data') {
     if (sessionStorage.getItem('history-check-store-fail') === '1') { sessionStorage.removeItem('history-check-store-fail'); throw new Error('Simulated atomic data write failure'); }
     const next = structuredClone(store);

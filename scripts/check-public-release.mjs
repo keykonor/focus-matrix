@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { isPrivateSourcePath } from './private-source-path.mjs';
 
 const read = path => readFileSync(path, 'utf8').replaceAll('\r\n', '\n');
 const pkg = JSON.parse(read('package.json'));
@@ -25,10 +26,9 @@ assert.match(read(`docs/releases/v${version}.md`), new RegExp(version.replaceAll
 
 // Inspect tracked files and intended new source, never ignored runtime files.
 const paths = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], { encoding: 'utf8', windowsHide: true }).split('\0').filter(Boolean);
-const privatePath = /(^|\/)(?:\.env(?:$|\.(?!example$))|\.dev\.vars|\.cloud-config|signing\/|backups\/|outputs\/|\.cloud-tools\/|\.edgeone\/)|\.(?:jks|keystore|p12|pfx|dpapi|pem|key|sqlite3?|db|dmp)$|^cloudbase\/cloudbaserc\.json$/i;
 const secret = /-----BEGIN (?:RSA |EC |OPENSSH |DSA |ENCRYPTED )?PRIVATE KEY-----|\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{30,}|AKID[A-Za-z0-9]{25,})|eyJ[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{12,}|https?:\/\/[^\s"'<>]+\/#(?:pair-)?[a-f0-9]{40,}/i;
 for (const path of paths) {
-  assert.ok(!privatePath.test(path), `Private path refused: ${path}`);
+  assert.ok(!isPrivateSourcePath(path), `Private path refused: ${path}`);
   const bytes = readFileSync(path);
   if (bytes.includes(0)) continue;
   assert.ok(!secret.test(bytes.toString('utf8')), `Potential credential refused in ${path}; value omitted.`);
