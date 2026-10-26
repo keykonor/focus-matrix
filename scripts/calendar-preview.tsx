@@ -34,10 +34,12 @@ const interactionCheck = {
   },
   emit,
   quitCalls: 0,
+  syncContents: [] as unknown[],
 };
 Object.assign(window, { interactionCheck });
 mockWindows('main');
 mockIPC(async (command, payload) => {
+  if (command === 'sync_cloud') interactionCheck.syncContents.push(structuredClone(payload?.content));
   if (paused.has(command)) await new Promise<void>((resolve, reject) => {
     waiting.set(command, [...(waiting.get(command) ?? []), { resolve, reject }]);
   });

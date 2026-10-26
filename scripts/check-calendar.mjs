@@ -208,6 +208,7 @@ try {
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(field, '修改后的任务文字');
     field.dispatchEvent(new Event('input', { bubbles: true }));
   })()`);
+  await evaluate("document.querySelector('.save-version-button').click()");
   await delay(600);
   assert.equal((await saved()).tasks[0].text, '修改后的任务文字');
   await evaluate("document.querySelector('.delete-button').click()");

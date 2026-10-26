@@ -48,6 +48,7 @@ export default function App() {
   const [savingVersion, setSavingVersion] = useState(false);
   const [saveNotice, setSaveNotice] = useState('');
   const [updating, setUpdating] = useState(false);
+  const [taskSaveRequest, setTaskSaveRequest] = useState(0);
   const savingVersionRef = useRef(false);
   const storeRef = useRef<LocalDataStore | null>(null);
   const updatingRef = useRef(false);
@@ -99,10 +100,17 @@ export default function App() {
   }, [refreshInteractionLock]);
 
   const readContent = useCallback(() => ({tasks:dataRef.current.tasks,dailyMemos:dataRef.current.dailyMemos}),[]);
+  const hasPendingTaskEdits = useCallback(() => !same(dataRef.current.tasks, storeRef.current?.baseline?.tasks ?? []), []);
+  const readSavedContent = useCallback(() => {
+    const saved = storeRef.current?.baseline ?? dataRef.current;
+    return { tasks: saved.tasks, dailyMemos: saved.dailyMemos };
+  }, []);
   const applyCloud = useCallback(async (delivery:CloudDelivery) => {
     if (!canEdit()) throw Error('当前内容正在加载或保存，同步稍后重试');
+    if (hasPendingTaskEdits()) throw Error('任务文字尚未提交，请按回车或点击保存后同步');
     if(!(await flushSave())) throw Error('无法保存当前内容，同步稍后重试');
     if(!canEdit()) throw Error('当前内容正在加载或保存，同步稍后重试');
+    if (hasPendingTaskEdits()) throw Error('任务文字尚未提交，请按回车或点击保存后同步');
     const current=dataRef.current;
     const merged=mergeContent(delivery.sentContent,{tasks:current.tasks,dailyMemos:current.dailyMemos},delivery.snapshot.content);
     const next={...current,...merged.content,syncMarks:delivery.snapshot.marks};
@@ -113,8 +121,8 @@ export default function App() {
       const operation=saveQueue.current.catch(()=>undefined).then(()=>saveData(store,next));saveQueue.current=operation;await operation;
       dataRef.current=next;setTasks(next.tasks);setDailyMemos(next.dailyMemos);setSyncMarks(next.syncMarks);setSaveError(false);
     }catch(error){setSaveError(true);throw error;}finally{restoringRef.current=false;refreshInteractionLock();}
-  },[flushSave,canEdit,refreshInteractionLock]);
-  const cloud=useCloudSharing(ready && !updating,{flush:flushSave,read:readContent,apply:applyCloud});
+  },[flushSave,canEdit,refreshInteractionLock,hasPendingTaskEdits]);
+  const cloud=useCloudSharing(ready && !updating,{flush:flushSave,read:readSavedContent,apply:applyCloud,hasPendingEdits:hasPendingTaskEdits});
 
   useEffect(() => {
     let active = true;
@@ -135,10 +143,16 @@ export default function App() {
 
   useEffect(() => {
     if (!ready || restoringRef.current) return;
+    const baseline = storeRef.current?.baseline;
+    if (baseline && same(settings, baseline.settings) && same(dailyMemos, baseline.dailyMemos)) return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => { void flushSave(); }, 400);
     return () => { if (saveTimer.current) clearTimeout(saveTimer.current); };
-  }, [tasks, settings, dailyMemos, ready, flushSave]);
+  }, [settings, dailyMemos, ready, flushSave]);
+
+  useEffect(() => {
+    if (taskSaveRequest > 0) void flushSave();
+  }, [taskSaveRequest, flushSave]);
 
   useEffect(() => {
     if (!ready) return;
@@ -232,10 +246,23 @@ export default function App() {
       const next = [...current]; next.splice(index + 1, 0, task); return next;
     });
     setFocusId(task.id);
+    if (afterId) setTaskSaveRequest(request => request + 1);
   };
-  const updateTask = (id: string, patch: Partial<Pick<Task, 'text' | 'completed'>>) => {if(canEdit())setTasks((current) => current.map((task) => task.id === id ? changeTask(task, patch) : task));};
-  const deleteTask = (id: string) => {if(canEdit())setTasks((current) => current.filter((task) => task.id !== id));};
-  const moveTask = (id: string, quadrant: QuadrantType) => {if(canEdit())setTasks((current) => current.map((task) => task.id === id && task.quadrant !== quadrant ? changeTask(task, { quadrant }) : task));};
+  const updateTask = (id: string, patch: Partial<Pick<Task, 'text' | 'completed'>>) => {
+    if(!canEdit())return;
+    setTasks(current => current.map(task => task.id === id ? changeTask(task, patch) : task));
+    if (patch.completed !== undefined) setTaskSaveRequest(request => request + 1);
+  };
+  const deleteTask = (id: string) => {
+    if(!canEdit())return;
+    setTasks(current => current.filter(task => task.id !== id));
+    setTaskSaveRequest(request => request + 1);
+  };
+  const moveTask = (id: string, quadrant: QuadrantType) => {
+    if(!canEdit())return;
+    setTasks(current => current.map(task => task.id === id && task.quadrant !== quadrant ? changeTask(task, { quadrant }) : task));
+    setTaskSaveRequest(request => request + 1);
+  };
   const onSettingsChange = (next: AppSettings) => {if(canEdit())setSettings(next);};
   const updateMemo = (date: string, period: MemoPeriod, text: string) => {if(canEdit())setDailyMemos((current) => changeMemo(current, date, period, text));};
   const toggleCalendar = () => {if(canEdit())setSettings((current) => ({ ...current, calendarOpen: !current.calendarOpen }));};

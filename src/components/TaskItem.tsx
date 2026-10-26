@@ -42,7 +42,7 @@ export function TaskItem({ task, mark, focus, fontSize, onChange, onDelete, onEn
       onDragStart={(event) => { event.dataTransfer.setData('text/task-id', task.id); event.dataTransfer.effectAllowed = 'move'; event.currentTarget.parentElement?.classList.add('is-dragging'); }}
       onDragEnd={(event) => event.currentTarget.parentElement?.classList.remove('is-dragging')}>⋮⋮</span>
     <input type="checkbox" checked={task.completed} onChange={(event) => onChange(task.id, { completed: event.target.checked })} aria-label={`完成 ${task.text || '任务'}`} />
-    <div className="task-content"><textarea ref={inputRef} className="task-text" rows={1} value={task.text} placeholder="输入任务…" aria-label="任务内容"
+    <div className="task-content"><textarea ref={inputRef} className="task-text" rows={1} value={task.text} placeholder="输入任务，回车保存…" aria-label="任务内容" title="Enter 保存并新增，Shift+Enter 换行"
       onChange={(event) => onChange(task.id, { text: event.target.value })}
       onKeyDown={(event) => {
         if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); onEnter(task.quadrant, task.id); }

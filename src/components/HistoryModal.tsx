@@ -82,7 +82,7 @@ export function HistoryModal({ onClose, onSaveVersion, onRestore }: Props) {
         <div><h2 id="history-title">待办历史</h2><p>按保存日期查看和恢复待办列表</p></div>
         <button type="button" className="history-close" aria-label="关闭历史记录" disabled={busy} onClick={onClose}>×</button>
       </header>
-      <div className="history-toolbar"><span>修改后自动保留 · 历史记录不会自动删除</span>
+      <div className="history-toolbar"><span>提交保存后保留 · 历史记录不会自动删除</span>
         <button type="button" className="history-save" disabled={busy} onClick={() => void perform(onSaveVersion, '当前待办已保存为一个新版本。')}>保存当前待办</button>
       </div>
       <div className="history-main">
