@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- Stop saving task text on every typing pause. Enter saves the current content
+  and creates the next task; Shift+Enter inserts a newline and IME confirmation
+  does not submit.
+- Keep saves for completion, deletion, movement, normal exit, daily memos and
+  settings. Background cloud sync waits while task edits are unsubmitted and
+  reads the last saved snapshot.
+- Cover Enter submission, draft retention, failed-save retry and existing
+  transaction protections with isolated browser regressions.
+
 ## 0.2.0
 
 First public GitHub release. Its actual publication date is recorded by GitHub

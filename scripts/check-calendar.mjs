@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
+await mkdir(join(process.cwd(), 'outputs'), { recursive: true });
+const profile = await mkdtemp(join(process.cwd(), 'outputs', 'calendar-browser-'));
 const browser = spawn('C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe', [
   '--headless=new', '--disable-gpu', '--no-first-run', '--disable-extensions', '--no-proxy-server',
-  '--remote-debugging-port=9239', `--user-data-dir=${join(process.cwd(), '.edge-calendar-check')}`, 'about:blank',
+  '--remote-debugging-port=9239', `--user-data-dir=${profile}`, 'about:blank',
 ], { stdio: 'ignore', windowsHide: true });
 let socket;
 const pending = new Map();
@@ -30,6 +32,16 @@ const waitFor = async (expression, label) => {
   throw new Error(`Timed out: ${label}; browser errors: ${JSON.stringify(errors)}; page: ${await evaluate('document.body.innerText')}`);
 };
 const saved = () => evaluate("JSON.parse(sessionStorage.getItem('calendar-check-data'))");
+const reload = async () => {
+  let listener, timeout;
+  const loaded = new Promise((resolve, reject) => {
+    listener = ({ data }) => { if (JSON.parse(data).method === 'Page.loadEventFired') resolve(); };
+    socket.addEventListener('message', listener);
+    timeout = setTimeout(() => reject(Error('Reload did not finish')), 15000);
+  });
+  try { await send('Page.reload'); await loaded; }
+  finally { clearTimeout(timeout); socket.removeEventListener('message', listener); }
+};
 const typeMemo = async (period, text) => {
   await evaluate(`(() => {
     const field = document.querySelector('[data-period="${period}"]');
@@ -60,6 +72,7 @@ try {
     if (message.method === 'Runtime.consoleAPICalled' && message.params.type === 'error') errors.push(message.params.args.map((arg) => arg.value ?? arg.description).join(' '));
   });
   await send('Runtime.enable');
+  await send('Page.enable');
   await send('Emulation.setDeviceMetricsOverride', { width: 720, height: 480, deviceScaleFactor: 1, mobile: false });
   await send('Page.navigate', { url: 'http://127.0.0.1:1420/calendar-preview.html' });
   await waitFor("document.querySelector('.calendar-button')?.disabled === false && document.querySelector('.task-text')", 'initial load');
@@ -77,7 +90,7 @@ try {
   assert.equal(data.dailyMemos[today].evening, '晚上安排');
   assert.deepEqual(data.tasks, originalTasks);
   assert.equal(data.settings.calendarOpen, true);
-  await send('Page.reload');
+  await reload();
   await waitFor("document.querySelector('[data-period=\"morning\"]')?.value === '早上安排\\n完整显示第二行'", 'restore notes and open state');
   console.log('today, all three periods, autosave and reload: ok');
   const anotherDate = await evaluate(`(() => { const day = [...document.querySelectorAll('.calendar-day')].find((day) => day.dataset.date !== ${JSON.stringify(today)} && !day.classList.contains('outside-month')); day.click(); return day.dataset.date; })()`);
@@ -146,7 +159,7 @@ try {
     assert.deepEqual(issues, [], `layout ${width}x${height}`);
     console.log(`calendar layout ${width}x${height}: ok`);
   }
-  await send('Page.reload');
+  await reload();
   await waitFor("document.querySelector('.today-button')", 'restore actual date');
   await evaluate("document.querySelector('.today-button').click()");
   await delay(100);
@@ -160,7 +173,7 @@ try {
   await waitFor("document.querySelectorAll('.quadrant').length === 4", 'return to matrix');
   await delay(600);
   assert.equal((await saved()).settings.calendarOpen, false);
-  await send('Page.reload');
+  await reload();
   await waitFor("document.querySelectorAll('.quadrant').length === 4", 'restore closed state');
   assert.deepEqual((await saved()).tasks, originalTasks);
   assert.deepEqual(errors, [], 'browser errors');
@@ -244,7 +257,7 @@ try {
   await selectVersion(manualId);
   await restoreSelected();
   await evaluate("document.querySelector('.history-close').click()");
-  await send('Page.reload');
+  await reload();
   await waitFor("document.querySelector('.task-text')?.value === '更新前已有的任务'", 'restored task after restart');
   assert.deepEqual((await saved()).dailyMemos, changed.dailyMemos);
   assert.equal('history' in (await saved()), false);
@@ -277,6 +290,8 @@ try {
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(field, '失败恢复前保留的内容');
     field.dispatchEvent(new Event('input', { bubbles: true }));
   })()`);
+  await evaluate("document.querySelector('.save-version-button').click()");
+  await waitFor("JSON.parse(sessionStorage.getItem('calendar-check-data')).tasks[0].text === '失败恢复前保留的内容'", 'explicit save before restore failure');
   await delay(600);
   const beforeFailure = await saved();
   await openHistory();
