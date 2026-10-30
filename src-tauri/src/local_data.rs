@@ -89,8 +89,13 @@ fn validate(value: &Value) -> Result<(), String> {
             }
         }
     }
-    for key in ["settings", "dailyMemos", "syncMarks"] {
+    for key in ["settings", "dailyMemos", "dailyDiaries", "syncMarks"] {
         if object.contains_key(key) && !value[key].is_object() { return Err(format!("{key} 无法读取，停止写入")); }
+    }
+    if let Some(diaries) = object.get("dailyDiaries") {
+        for (date, text) in diaries.as_object().ok_or("日记数据无法读取，停止写入")? {
+            if !crate::history::valid_date(date) || !text.is_string() { return Err("日记数据无法读取，停止写入".into()); }
+        }
     }
     if object.contains_key("completedTasks") && !value["completedTasks"].is_array() { return Err("已完成仓库无法读取，停止写入".into()); }
     Ok(())
@@ -104,7 +109,7 @@ fn commit(root: &Path, patch: Value) -> Result<(), String> {
     let before = current.clone();
     let updates = patch.as_object().ok_or("Invalid local patch")?;
     for (key, value) in updates {
-        if !["tasks", "settings", "dailyMemos", "syncMarks", "completedTasks", "taskDay"].contains(&key.as_str()) {
+        if !["tasks", "settings", "dailyMemos", "dailyDiaries", "syncMarks", "completedTasks", "taskDay"].contains(&key.as_str()) {
             return Err("Unsupported local data field".into());
         }
         if key == "settings" {

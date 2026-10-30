@@ -25,6 +25,7 @@ pub struct SavedMemo {
 pub struct Content {
     tasks: Vec<SavedTask>,
     #[serde(default)] daily_memos: BTreeMap<String, SavedMemo>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")] daily_diaries: BTreeMap<String, String>,
 }
 impl Content {
     fn validate(&self) -> Result<(), String> {
@@ -36,10 +37,11 @@ impl Content {
         for date in self.daily_memos.keys() {
             if !valid_date(date) { return Err("Invalid memo date in history".into()); }
         }
+        for date in self.daily_diaries.keys() { if !valid_date(date) { return Err("Invalid diary date in history".into()); } }
         Ok(())
     }
 }
-fn valid_date(date: &str) -> bool {
+pub(crate) fn valid_date(date: &str) -> bool {
     if date.len() != 10 || date.as_bytes()[4] != b'-' || date.as_bytes()[7] != b'-' { return false; }
     let parts: Vec<_> = date.split('-').collect();
     let numbers: Option<Vec<u32>> = parts.iter().map(|p| p.parse::<u32>().ok()).collect();
@@ -182,7 +184,7 @@ mod tests {
         fs::create_dir_all(&root).unwrap(); root
     }
     fn content(text: &str) -> Content {
-        Content { tasks: vec![SavedTask { id: "one".into(), text: text.into(), completed: false, created_at: "original".into(), updated_at: "original".into(), quadrant: "important-urgent".into() }], daily_memos: BTreeMap::from([("2026-10-03".into(), SavedMemo { evening: "晚间记录".into(), ..Default::default() })]) }
+        Content { tasks: vec![SavedTask { id: "one".into(), text: text.into(), completed: false, created_at: "original".into(), updated_at: "original".into(), quadrant: "important-urgent".into() }], daily_memos: BTreeMap::from([("2026-10-03".into(), SavedMemo { evening: "晚间记录".into(), ..Default::default() })]), daily_diaries: BTreeMap::new() }
     }
     #[test]
     fn previous_current_manual_and_restore_versions_are_durable() {
@@ -234,6 +236,14 @@ mod tests {
         fs::write(history_dir(&root), b"blocking-file").unwrap();
         assert!(save(&root, &mut None, content("新内容"), Reason::Automatic).is_err());
         assert_eq!(fs::read(root.join("focus-matrix.json")).unwrap(), original);
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn diary_is_preserved_in_immutable_history() {
+        let root = temp_root(); let mut saved = content("原有待办");
+        saved.daily_diaries.insert("2026-10-30".into(), "今天的日记".into());
+        let version = save(&root, &mut None, saved.clone(), Reason::Manual).unwrap().unwrap();
+        assert_eq!(get(&root, &version.id).unwrap().content, saved);
         fs::remove_dir_all(root).unwrap();
     }
 }

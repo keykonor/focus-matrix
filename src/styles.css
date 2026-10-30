@@ -187,6 +187,14 @@ button { cursor: pointer; }
 .memo-dot { position: absolute; left: calc(50% - 1.5px); bottom: 2px; width: 3px; height: 3px; border-radius: 50%; background: currentColor; }
 .today-button { margin: 16px 0 0; padding: 5px 0; border: 0; background: transparent; color: #52795f; font-size: 12px; }
 .today-button:hover { text-decoration: underline; }
+.calendar-actions { display:flex; align-items:center; gap:16px; flex-wrap:wrap; justify-content:flex-end; }
+.calendar-actions .today-button { margin:0; }
+.diary-section { display:flex; flex-direction:column; gap:7px; margin-top:20px; }
+.diary-label { color:#547b66; font-size:13px; font-weight:600; }
+.diary-date { color:#87a293; font-size:11px; }
+.diary-text { box-sizing:border-box; width:100%; min-height:110px; padding:8px 6px; border:1px solid rgba(94,143,122,.20); border-radius:3px; background:rgba(255,255,255,.18); color:#365d50; font:inherit; font-size:var(--task-font-size,16px); line-height:1.6; resize:vertical; }
+.diary-text:focus { outline:1px solid #80a793; background:rgba(255,255,255,.32); }
+.diary-text::placeholder { color:#9bb3a7; font-size:12px; }
 .calendar-hint { margin: 12px 0 0; color: #87a293; font-size: 11px; line-height: 1.8; }
 .daily-memos { min-width: 0; padding: 25px clamp(20px, 3vw, 42px) 30px; border-left: 1px solid rgba(91,135,108,.10); }
 .memo-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }

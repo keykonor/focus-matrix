@@ -5,14 +5,15 @@ import type { AppSettings, DailyMemos, Task } from './types';
 import { archiveContent } from './contentHistory';
 import { same, type EditMark } from '../cloud-site/lib/syncModel';
 import { parseCompletedTasks, type CompletedTaskRecord } from './completedTasks';
+import { parseDiaries } from './diary';
 
-export interface AppData { tasks: Task[]; settings: AppSettings; dailyMemos: DailyMemos; syncMarks?: Record<string,EditMark>; completedTasks?: CompletedTaskRecord[]; taskDay?: string; }
+export interface AppData { tasks: Task[]; settings: AppSettings; dailyMemos: DailyMemos; dailyDiaries?: Record<string,string>; syncMarks?: Record<string,EditMark>; completedTasks?: CompletedTaskRecord[]; taskDay?: string; }
 export interface LocalDataStore { baseline: AppData | null; }
 interface LoadResult { data: Record<string, unknown> | null; guardDate?: string | null; updateNonce?: string | null; }
 
 export function createDataPatch(previous: AppData | null, next: AppData): Record<string, unknown> {
   const patch: Record<string, unknown> = {};
-  for (const key of ['tasks', 'syncMarks', 'completedTasks', 'taskDay'] as const) {
+  for (const key of ['tasks', 'syncMarks', 'completedTasks', 'taskDay', 'dailyDiaries'] as const) {
     if (next[key] !== undefined && (!previous || !same(previous[key], next[key]))) patch[key] = next[key];
   }
   const settings = Object.fromEntries(Object.entries(next.settings).filter(([key, value]) =>
@@ -48,7 +49,7 @@ export async function openDataStore(): Promise<{ store: LocalDataStore; data: Ap
       if (original[field] !== undefined && typeof original[field] !== 'string') throw new Error('备忘录包含无法读取的内容，停止保存');
     }
   }
-  const data: AppData = { tasks, dailyMemos, settings: parseSettings(raw.settings),
+  const data: AppData = { tasks, dailyMemos, ...(raw.dailyDiaries === undefined ? {} : { dailyDiaries: parseDiaries(raw.dailyDiaries) }), settings: parseSettings(raw.settings),
     syncMarks: (raw.syncMarks ?? {}) as Record<string, EditMark>,
     completedTasks: parseCompletedTasks(raw.completedTasks),
     taskDay: typeof raw.taskDay === 'string' && isDateKey(raw.taskDay) ? raw.taskDay : undefined };
@@ -59,7 +60,7 @@ export async function openDataStore(): Promise<{ store: LocalDataStore; data: Ap
 }
 
 export async function saveData(store: LocalDataStore, data: AppData): Promise<void> {
-  await archiveContent({ tasks: data.tasks, dailyMemos: data.dailyMemos });
+  await archiveContent({ tasks: data.tasks, dailyMemos: data.dailyMemos, dailyDiaries: data.dailyDiaries });
   const patch = createDataPatch(store.baseline, data);
   if (Object.keys(patch).length) await invoke('commit_local_data', { patch });
   // Do not advance this baseline if the atomic write failed.

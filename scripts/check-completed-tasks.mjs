@@ -519,6 +519,27 @@ try {
     assert.equal(await evaluate("Boolean(document.querySelector('.image-overlay img'))"), true);
     await evaluate("document.querySelector('.image-overlay-close').click()");
   });
+  await regression('daily diary autosaves by selected date and survives reload', async () => {
+    await reloadInteraction(); await delay(600);
+    await evaluate("document.querySelector('.calendar-button').click()");
+    await wait("document.querySelector('.diary-text') && document.querySelector('.memo-heading .today-button')");
+    const date = await evaluate("document.querySelector('.daily-memos').dataset.selectedDate");
+    const diary = '合成日记\n第二行';
+    await evaluate(`(() => { const field=document.querySelector('.diary-text'); Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(field,${JSON.stringify(diary)}); field.dispatchEvent(new Event('input',{bubbles:true})); })()`);
+    await wait(`JSON.parse(sessionStorage.getItem('calendar-check-data')).dailyDiaries?.[${JSON.stringify(date)}] === ${JSON.stringify(diary)}`);
+    await evaluate("[...document.querySelectorAll('.calendar-day')].find(day => !day.classList.contains('outside-month') && day.getAttribute('aria-pressed') === 'false').click()");
+    assert.equal(await evaluate("document.querySelector('.diary-text').value"), '');
+    await evaluate("document.querySelector('.today-button').click()");
+    assert.equal(await evaluate("document.querySelector('.diary-text').value"), diary);
+    await send('Page.reload'); await delay(1000);
+    await wait(`document.querySelector('.diary-text')?.value === ${JSON.stringify(diary)}`);
+    assert.equal(await evaluate("document.querySelector('.daily-memos').dataset.selectedDate"), date);
+    for (const [width,height] of [[520,360],[720,480],[1200,760]]) {
+      await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor:1, mobile:false });
+      await delay(150);
+      assert.equal(await evaluate("document.documentElement.scrollWidth <= innerWidth + 1 && document.querySelector('.calendar-panel').scrollWidth <= document.querySelector('.calendar-panel').clientWidth + 1 && document.querySelector('.diary-text').scrollWidth <= document.querySelector('.diary-text').clientWidth + 1"), true, 'Diary layout overflows');
+    }
+  });
   assert.deepEqual(errors, [], 'Browser exceptions or network failures');
   if (interactionFailures.length) throw new AggregateError(interactionFailures, 'Interaction preservation regressions failed');
 } finally {

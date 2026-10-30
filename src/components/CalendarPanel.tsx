@@ -11,8 +11,10 @@ const dateFormatter = new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'nu
 interface Props {
   today: string;
   memos: DailyMemos;
+  diaries: Record<string,string>;
   marks?:Record<string,EditMark>;
   onChange: (date: string, period: MemoPeriod, text: string) => void;
+  onDiaryChange: (date: string, text: string) => void;
   onClose: () => void;
 }
 
@@ -35,7 +37,7 @@ function MemoField({ period, text, onChange }: { period: MemoPeriod; text: strin
   </label>;
 }
 
-export function CalendarPanel({ today, memos, marks, onChange, onClose }: Props) {
+export function CalendarPanel({ today, memos, diaries, onDiaryChange, marks, onChange, onClose }: Props) {
   const [selectedDate, setSelectedDate] = useState(today);
   const [month, setMonth] = useState(today.slice(0, 7));
   const previousToday = useRef(today);
@@ -64,19 +66,22 @@ export function CalendarPanel({ today, memos, marks, onChange, onClose }: Props)
       <div className="calendar-days" aria-label="选择日期">
         {monthDays(month).map((date) => <button key={date} type="button" data-date={date}
           className={`calendar-day${date.startsWith(month) ? '' : ' outside-month'}${date === today ? ' is-today' : ''}${date === selectedDate ? ' is-selected' : ''}`}
-          aria-label={`${date}${hasMemo(memos[date]) ? '，有备忘录' : ''}`}
+          aria-label={`${date}${hasMemo(memos[date]) || diaries[date] ? '，有记录' : ''}`}
           aria-pressed={date === selectedDate} aria-current={date === today ? 'date' : undefined}
           onClick={() => selectDate(date)}>
-          <span>{Number(date.slice(8))}</span>{hasMemo(memos[date]) && <i className="memo-dot" aria-hidden="true" />}
+          <span>{Number(date.slice(8))}</span>{(hasMemo(memos[date]) || diaries[date]) && <i className="memo-dot" aria-hidden="true" />}
         </button>)}
       </div>
-      <button type="button" className="today-button" onClick={() => selectDate(today)}>回到今天</button>
-      <p className="calendar-hint">选择日期，记录当天的安排<br />有圆点的日期已写下备忘录</p>
+      <label className="diary-section"><span className="diary-label">当日日记</span>
+        <span className="diary-date">{dateFormatter.format(selected)}</span>
+        <textarea className="diary-text" aria-label="当日日记" placeholder="写下这一天…" value={diaries[selectedDate] ?? ''}
+          onChange={event => onDiaryChange(selectedDate, event.target.value)} />
+      </label>
     </aside>
     <section className="daily-memos" aria-labelledby="memo-date-heading" data-selected-date={selectedDate}>
       <div className="memo-heading">
         <div><p className="memo-eyebrow">{selected.getFullYear()} · 每日备忘录</p><h2 id="memo-date-heading">{dateFormatter.format(selected)}</h2></div>
-        <button type="button" className="calendar-close" onClick={onClose}>返回矩阵</button>
+        <div className="calendar-actions"><button type="button" className="today-button" onClick={() => selectDate(today)}>回到今天</button><button type="button" className="calendar-close" onClick={onClose}>返回矩阵</button></div>
       </div>
       <p className="memo-save-hint">自动保存 · 可保持此页面打开</p>
       {memoPeriods.map((period) => <div key={`${selectedDate}-${period}`}><MemoField period={period}
