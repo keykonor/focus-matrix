@@ -39,6 +39,13 @@ if (Test-Path -LiteralPath $historyDirectory -PathType Container) {
         $sources += [pscustomobject]@{ Path = $historyFile.FullName; Name = (Join-Path 'history' $relativeName) }
     }
 }
+$imageDirectory = Join-Path $dataDirectory 'images'
+if (Test-Path -LiteralPath $imageDirectory -PathType Container) {
+    foreach ($imageFile in Get-ChildItem -LiteralPath $imageDirectory -Recurse -File -ErrorAction Stop) {
+        $relativeName = $imageFile.FullName.Substring($imageDirectory.Length + 1)
+        $sources += [pscustomobject]@{ Path = $imageFile.FullName; Name = (Join-Path 'images' $relativeName) }
+    }
+}
 
 New-Item -ItemType Directory -Path $backupRoot -Force -ErrorAction Stop | Out-Null
 New-Item -ItemType Directory -Path $backupDirectory -ErrorAction Stop | Out-Null

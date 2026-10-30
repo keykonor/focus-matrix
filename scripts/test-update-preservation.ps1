@@ -10,7 +10,10 @@ $original = [Text.Encoding]::UTF8.GetBytes('{"tasks":[],"dailyMemos":{"2026-10-1
 $window = [Text.Encoding]::UTF8.GetBytes('{"main":{"x":123,"width":720}}')
 [IO.File]::WriteAllBytes((Join-Path $backup 'focus-matrix.json'), $original)
 [IO.File]::WriteAllBytes((Join-Path $backup '.window-state.json'), $window)
-$entries = @('focus-matrix.json', '.window-state.json') | ForEach-Object {
+New-Item -ItemType Directory -Path (Join-Path $backup 'images') -Force | Out-Null
+$imageFixture = [byte[]](137,80,78,71,13,10,26,10,1,2,3)
+[IO.File]::WriteAllBytes((Join-Path $backup 'images\fixture'), $imageFixture)
+$entries = @('focus-matrix.json', '.window-state.json', 'images\fixture') | ForEach-Object {
     [pscustomobject]@{ name=$_; sha256=(Get-FileHash -LiteralPath (Join-Path $backup $_)).Hash }
 }
 Write-AtomicJson (Join-Path $backup 'manifest.json') @{ files=@($entries) }
@@ -19,6 +22,12 @@ Restore-UpdateSnapshot $backup $data
 if ((Read-UpdateJson (Join-Path $data 'focus-matrix.json')).futureData -ne $unicodeText) { throw 'UTF-8 text did not round-trip.' }
 if ([Convert]::ToBase64String([IO.File]::ReadAllBytes((Join-Path $data 'focus-matrix.json'))) -ne [Convert]::ToBase64String($original)) { throw 'Full snapshot was not restored byte-for-byte.' }
 if ([Convert]::ToBase64String([IO.File]::ReadAllBytes((Join-Path $data '.window-state.json'))) -ne [Convert]::ToBase64String($window)) { throw 'Window snapshot changed.' }
+if ([Convert]::ToBase64String([IO.File]::ReadAllBytes((Join-Path $data 'images\fixture'))) -ne [Convert]::ToBase64String($imageFixture)) { throw 'Image snapshot changed.' }
+[IO.File]::WriteAllBytes((Join-Path $data 'images\fixture'), [byte[]](1,2,3))
+$blocked = $false
+try { Restore-UpdateSnapshot $backup $data } catch { $blocked=$true }
+if (-not $blocked) { throw 'Changed immutable image was accepted.' }
+[IO.File]::WriteAllBytes((Join-Path $data 'images\fixture'), $imageFixture)
 # Simulate a damaged backup; active state must remain unchanged.
 [IO.File]::WriteAllText((Join-Path $backup 'focus-matrix.json'), '{}')
 $blocked = $false

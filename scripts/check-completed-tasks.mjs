@@ -491,6 +491,34 @@ try {
     await wait("JSON.parse(sessionStorage.getItem('calendar-check-data')).tasks.some(task => task.text.includes('回车失败后保留的草稿')) && document.querySelector('.save-error') === null");
     assert.equal(await evaluate("document.querySelector('.save-error') === null"), true);
   });
+  await regression('pasted image and dropped link survive save and reload', async () => {
+    await reloadInteraction(); await delay(600);
+    const selector = '.task-item[data-task-id="未完成"]';
+    await evaluate(`(() => { const row = document.querySelector(${JSON.stringify(selector)}); const field = row.querySelector('textarea');
+      field.focus(); window.interactionCheck.pause('save_task_image');
+      const transfer = new DataTransfer(); const png=Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/aK0AAAAASUVORK5CYII='), c=>c.charCodeAt(0)); transfer.items.add(new File([png], 'test.png', {type:'image/png'}));
+      field.dispatchEvent(new ClipboardEvent('paste', { bubbles:true, cancelable:true, clipboardData:transfer })); })()`);
+    await wait("window.interactionCheck.pending('save_task_image') > 0");
+    await evaluate("window.interactionCheck.emit('tauri://close-requested')");
+    await delay(200);
+    assert.equal(await evaluate('window.interactionCheck.quitCalls'), 0, 'Closed while image was being saved');
+    await evaluate("window.interactionCheck.release('save_task_image')");
+    await wait(`${JSON.stringify(selector)} && document.querySelector(${JSON.stringify(selector + ' .task-image-preview')})`);
+    await evaluate(`(() => { const row=document.querySelector(${JSON.stringify(selector)}); const transfer=new DataTransfer(); const png=Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/aK0AAAAASUVORK5CYII='), c=>c.charCodeAt(0)); transfer.items.add(new File([png], 'dragged.png', {type:'image/png'})); row.querySelector('.task-content').dispatchEvent(new DragEvent('drop', {bubbles:true,cancelable:true,dataTransfer:transfer})); })()`);
+    await wait(`document.querySelectorAll(${JSON.stringify(selector + ' .task-image-preview')}).length === 2`);
+    await evaluate(`(() => { const row=document.querySelector(${JSON.stringify(selector)}); const transfer=new DataTransfer(); transfer.setData('text/uri-list','https://example.com/page'); row.querySelector('.task-content').dispatchEvent(new DragEvent('drop', {bubbles:true,cancelable:true,dataTransfer:transfer})); })()`);
+    await wait(`document.querySelector(${JSON.stringify(selector + ' .task-link')})`);
+    await evaluate(`document.querySelector(${JSON.stringify(selector + ' textarea')}).focus()`);
+    await pressEnter();
+    await wait("JSON.parse(sessionStorage.getItem('calendar-check-data')).tasks.some(task => task.text.includes('[FocusMatrix图片:'))");
+    await send('Page.reload'); await delay(1000);
+    await wait(`document.querySelector(${JSON.stringify(selector + ' .task-image-preview')})`);
+    assert.equal(await evaluate(`document.querySelectorAll(${JSON.stringify(selector + ' .task-image-preview')}).length`), 2);
+    assert.ok(await evaluate(`Boolean(document.querySelector(${JSON.stringify(selector + ' .task-link')}))`));
+    await evaluate(`document.querySelector(${JSON.stringify(selector + ' .task-image-preview')}).click()`);
+    assert.equal(await evaluate("Boolean(document.querySelector('.image-overlay img'))"), true);
+    await evaluate("document.querySelector('.image-overlay-close').click()");
+  });
   assert.deepEqual(errors, [], 'Browser exceptions or network failures');
   if (interactionFailures.length) throw new AggregateError(interactionFailures, 'Interaction preservation regressions failed');
 } finally {

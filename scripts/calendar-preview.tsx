@@ -46,6 +46,16 @@ mockIPC(async (command, payload) => {
   if (command === 'read_local_data') return { data: structuredClone(store), guardDate: sessionStorage.getItem('update-check-guard'), updateNonce: sessionStorage.getItem('update-check-nonce') };
   if (command === 'ack_update_restore') { sessionStorage.setItem('update-check-verified', '1'); sessionStorage.removeItem('update-check-nonce'); return; }
   if (command === 'read_update_request') return sessionStorage.getItem('update-check-request');
+  if (command === 'save_task_image') {
+    const id = 'a'.repeat(64);
+    sessionStorage.setItem(`image-${id}`, JSON.stringify(payload?.bytes));
+    return id;
+  }
+  if (command === 'read_task_image') {
+    const bytes = sessionStorage.getItem(`image-${String(payload?.id)}`);
+    if (!bytes) throw new Error('Image missing');
+    return JSON.parse(bytes);
+  }
   if (command === 'finish_update_prepare') { sessionStorage.setItem('update-check-ready', String(payload?.nonce)); return; }
   if (command === 'quit_app') { interactionCheck.quitCalls++; sessionStorage.setItem('update-check-quit', '1'); return; }
   if (command === 'commit_local_data') {

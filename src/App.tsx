@@ -19,6 +19,7 @@ import { restoreTaskContent } from './taskHistory';
 import { changeMemo, localDateKey } from './calendarModel';
 import { useToday } from './hooks/useToday';
 import { changeTask, newTask } from './taskModel';
+import { hasPendingImages } from './taskImages';
 import { openDataStore, saveData, type AppData, type LocalDataStore } from './storage';
 import { defaultSettings, quadrants, type AppSettings, type DailyMemos, type MemoPeriod, type QuadrantType, type Task } from './types';
 
@@ -100,7 +101,7 @@ export default function App() {
   }, [refreshInteractionLock]);
 
   const readContent = useCallback(() => ({tasks:dataRef.current.tasks,dailyMemos:dataRef.current.dailyMemos}),[]);
-  const hasPendingTaskEdits = useCallback(() => !same(dataRef.current.tasks, storeRef.current?.baseline?.tasks ?? []), []);
+  const hasPendingTaskEdits = useCallback(() => hasPendingImages() || !same(dataRef.current.tasks, storeRef.current?.baseline?.tasks ?? []), []);
   const readSavedContent = useCallback(() => {
     const saved = storeRef.current?.baseline ?? dataRef.current;
     return { tasks: saved.tasks, dailyMemos: saved.dailyMemos };
@@ -157,6 +158,7 @@ export default function App() {
   useEffect(() => {
     if (!ready) return;
     const checkDay = () => {
+      if (hasPendingImages()) return;
       const day = dataRef.current.taskDay;
       if (rolloverGuard.current !== localDateKey() && (!day || day < localDateKey())) void flushSave();
     };
@@ -184,6 +186,7 @@ export default function App() {
 
   const closeApplication = useCallback(async (forceQuit = false) => {
     if (!readyRef.current || closingRef.current) return;
+    if (hasPendingImages()) { setSaveNotice('图片正在保存，请稍候再关闭。'); return; }
     closingRef.current = true; refreshInteractionLock();
     let exited = false;
     try {
@@ -268,6 +271,7 @@ export default function App() {
   const toggleCalendar = () => {if(canEdit())setSettings((current) => ({ ...current, calendarOpen: !current.calendarOpen }));};
   const openHistory = async () => { await flushSave(); setHistoryOpen(true); };
   const saveVersion = async () => {
+    if (hasPendingImages()) throw new Error('图片正在保存，请稍候');
     if (savingVersionRef.current || !canEdit()) throw new Error('正在保存或恢复，请稍后重试');
     savingVersionRef.current = true; setSavingVersion(true);
     try {
@@ -286,6 +290,7 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [saveNotice]);
   const restoreVersion = async (version: ContentVersion) => {
+    if (hasPendingImages()) throw new Error('图片正在保存，请稍候');
     if (!canEdit()) throw new Error('正在加载或保存，请稍后重试');
     if (!(await flushSave())) throw new Error('Current content could not be saved');
     if (!canEdit()) throw new Error('正在加载或保存，请稍后重试');

@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CompletedTaskRecord } from '../completedTasks';
 import { quadrantNames } from '../types';
+import { imageIds, visibleTaskText } from '../taskImages';
+import { TaskImage } from './TaskImage';
 
 interface Props { records: CompletedTaskRecord[]; onClose: () => void; }
 
@@ -58,7 +60,8 @@ export function CompletedTasksModal({ records, onClose }: Props) {
             <h3><time dateTime={day}>{day}</time> 归档</h3>
             {items.map(record => <article className="completed-record" key={record.id} data-archive-id={record.id}>
               <span aria-hidden="true" className="completed-check">✓</span><div>
-                <p>{record.task.text || '（空白任务）'}</p><small>{quadrantNames[record.task.quadrant]}</small>
+                <p>{visibleTaskText(record.task.text) || (imageIds(record.task.text).length ? '图片任务' : '（空白任务）')}</p>
+                {imageIds(record.task.text).map((id, index) => <TaskImage key={`${id}-${index}`} id={id} />)}<small>{quadrantNames[record.task.quadrant]}</small>
               </div>
             </article>)}
           </section>)}

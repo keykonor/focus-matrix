@@ -1,6 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { flushSync } from 'react-dom';
 import { findTaskLinks } from '../taskLinks';
+import { beginImageSave, endImageSave, imageIds, visibleTaskText, withTaskImages } from '../taskImages';
+import { TaskImage } from './TaskImage';
 import type { AppSettings, QuadrantType, Task } from '../types';
 import {EditAnnotation} from './EditAnnotation';
 import type {EditMark} from '../../cloud-site/lib/syncModel';
@@ -17,7 +20,32 @@ interface Props {
 
 export function TaskItem({ task, mark, focus, fontSize, onChange, onDelete, onEnter }: Props) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const taskRef = useRef(task); taskRef.current = task;
+  const imagePending = useRef(false);
   const [linkError, setLinkError] = useState(false);
+  const [imageError, setImageError] = useState('');
+  const [addingImage, setAddingImage] = useState(false);
+  const text = visibleTaskText(task.text);
+  const ids = imageIds(task.text);
+  const updateText = (value: string, images = imageIds(taskRef.current.text)) => {
+    const next = withTaskImages(value, images);
+    taskRef.current = { ...taskRef.current, text: next };
+    onChange(task.id, { text: next });
+  };
+  const addImages = async (files: File[]) => {
+    if (imagePending.current) { setImageError('图片正在保存，请稍候再添加。'); return; }
+    imagePending.current = true; beginImageSave(); setAddingImage(true); setImageError('');
+    try {
+      for (const file of files) {
+        if (file.size > 10 * 1024 * 1024) throw Error('图片超过 10 MB，请选择较小的图片。');
+        const bytes = Array.from(new Uint8Array(await file.arrayBuffer()));
+        const id = await invoke<string>('save_task_image', { bytes });
+        const current = taskRef.current.text;
+        flushSync(() => updateText(visibleTaskText(current), [...imageIds(current), id]));
+      }
+    } catch (error) { setImageError(typeof error === 'string' ? error : error instanceof Error ? error.message : '图片保存失败，请重试。'); }
+    finally { imagePending.current = false; endImageSave(); setAddingImage(false); }
+  };
   useEffect(() => { if (focus) inputRef.current?.focus(); }, [focus]);
   useLayoutEffect(() => {
     const input = inputRef.current;
@@ -45,17 +73,29 @@ export function TaskItem({ task, mark, focus, fontSize, onChange, onDelete, onEn
       onDragStart={(event) => { event.dataTransfer.setData('text/task-id', task.id); event.dataTransfer.effectAllowed = 'move'; event.currentTarget.parentElement?.classList.add('is-dragging'); }}
       onDragEnd={(event) => event.currentTarget.parentElement?.classList.remove('is-dragging')}>⋮⋮</span>
     <input type="checkbox" checked={task.completed} onChange={(event) => onChange(task.id, { completed: event.target.checked })} aria-label={`完成 ${task.text || '任务'}`} />
-    <div className="task-content"><textarea ref={inputRef} className="task-text" rows={1} value={task.text} placeholder="输入任务，回车保存…" aria-label="任务内容" title="Enter 保存并新增，Shift+Enter 换行"
-      onChange={(event) => onChange(task.id, { text: event.target.value })}
+    <div className="task-content" onDragOver={event => { if (!event.dataTransfer.types.includes('text/task-id')) event.preventDefault(); }}
+      onDrop={event => {
+        if (event.dataTransfer.types.includes('text/task-id')) return;
+        event.preventDefault(); event.stopPropagation();
+        const files = Array.from(event.dataTransfer.files);
+        if (files.length) { void addImages(files); return; }
+        const value = event.dataTransfer.getData('text/uri-list').split(/\r?\n/).find(line => /^https?:\/\//i.test(line)) || event.dataTransfer.getData('text/plain');
+        if (value) updateText(`${visibleTaskText(taskRef.current.text)}${visibleTaskText(taskRef.current.text) ? '\n' : ''}${value}`);
+      }}><textarea ref={inputRef} className="task-text" rows={1} value={text} placeholder="输入任务，回车保存…" aria-label="任务内容" title="Enter 保存并新增，Shift+Enter 换行；可粘贴或拖入图片和链接"
+      onChange={(event) => updateText(event.target.value)}
+      onPaste={event => { const files = Array.from(event.clipboardData.files); if (files.length) { event.preventDefault(); void addImages(files); } }}
       onKeyDown={(event) => {
-        if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); onEnter(task.quadrant, task.id); }
-        if (event.key === 'Delete' && !task.text) { event.preventDefault(); onDelete(task.id); }
+        if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); if (!imagePending.current) onEnter(task.quadrant, task.id); }
+        if (event.key === 'Delete' && !task.text && !imagePending.current) { event.preventDefault(); onDelete(task.id); }
       }}
-      onBlur={() => { if (!task.text.trim()) onDelete(task.id); }} />
-      {findTaskLinks(task.text).map(({url}) => <button key={url} type="button" className="task-link" title={url}
+      onBlur={() => { if (!taskRef.current.text.trim() && !imagePending.current) onDelete(task.id); }} />
+      {addingImage && <span role="status" className="task-image-message">正在保存图片…</span>}
+      {imageError && <span role="alert" className="task-image-message">{imageError}</span>}
+      {ids.map((id, index) => <TaskImage key={`${id}-${index}`} id={id} onRemove={() => updateText(visibleTaskText(taskRef.current.text), imageIds(taskRef.current.text).filter((_, i) => i !== index))} />)}
+      {findTaskLinks(text).map(({url}) => <button key={url} type="button" className="task-link" title={url}
         onClick={() => { setLinkError(false); void invoke('open_task_link', {url}).catch(() => setLinkError(true)); }}>打开链接：{url}</button>)}
       {linkError && <span className="task-link-error" role="alert">无法打开链接，请检查默认浏览器设置。</span>}
       <EditAnnotation mark={mark}/></div>
-    <button type="button" className="delete-button" onClick={() => onDelete(task.id)} aria-label="删除任务" title="删除任务">×</button>
+    <button type="button" className="delete-button" disabled={addingImage} onClick={() => onDelete(task.id)} aria-label="删除任务" title="删除任务">×</button>
   </div>;
 }
