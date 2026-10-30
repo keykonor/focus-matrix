@@ -1,4 +1,6 @@
-import { useEffect, useLayoutEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
+import { findTaskLinks } from '../taskLinks';
 import type { AppSettings, QuadrantType, Task } from '../types';
 import {EditAnnotation} from './EditAnnotation';
 import type {EditMark} from '../../cloud-site/lib/syncModel';
@@ -15,6 +17,7 @@ interface Props {
 
 export function TaskItem({ task, mark, focus, fontSize, onChange, onDelete, onEnter }: Props) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const [linkError, setLinkError] = useState(false);
   useEffect(() => { if (focus) inputRef.current?.focus(); }, [focus]);
   useLayoutEffect(() => {
     const input = inputRef.current;
@@ -48,7 +51,11 @@ export function TaskItem({ task, mark, focus, fontSize, onChange, onDelete, onEn
         if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); onEnter(task.quadrant, task.id); }
         if (event.key === 'Delete' && !task.text) { event.preventDefault(); onDelete(task.id); }
       }}
-      onBlur={() => { if (!task.text.trim()) onDelete(task.id); }} /><EditAnnotation mark={mark}/></div>
+      onBlur={() => { if (!task.text.trim()) onDelete(task.id); }} />
+      {findTaskLinks(task.text).map(({url}) => <button key={url} type="button" className="task-link" title={url}
+        onClick={() => { setLinkError(false); void invoke('open_task_link', {url}).catch(() => setLinkError(true)); }}>打开链接：{url}</button>)}
+      {linkError && <span className="task-link-error" role="alert">无法打开链接，请检查默认浏览器设置。</span>}
+      <EditAnnotation mark={mark}/></div>
     <button type="button" className="delete-button" onClick={() => onDelete(task.id)} aria-label="删除任务" title="删除任务">×</button>
   </div>;
 }

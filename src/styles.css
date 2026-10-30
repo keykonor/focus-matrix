@@ -213,6 +213,8 @@ button { cursor: pointer; }
 .modal-header button { width: 28px; height: 28px; padding: 0; border: 0; border-radius: 3px; background: transparent; color: #7e9d87; font-size: 24px; line-height: 1; }
 .modal-header button:hover { background: #e9f3ea; }
 .settings-list { display: flex; flex-direction: column; }
+.settings-group-title { margin: 20px 0 0; padding-bottom: 8px; border-bottom: 1px solid #dce9df; color: #73917c; font-size: 12px; font-weight: 650; letter-spacing: .04em; }
+.settings-group-title:first-child { margin-top: 5px; }
 .setting-row { display: flex; align-items: center; justify-content: space-between; gap: 18px; min-height: 72px; border-bottom: 1px solid rgba(95, 140, 110, .13); }
 .setting-row span:first-child { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
 .setting-row strong { color: #385c45; font-size: 14px; font-weight: 600; }
@@ -358,3 +360,7 @@ button { cursor: pointer; }
 .cloud-changes .edit-annotation { margin:8px 0; }
 .task-content { flex:1;min-width:0; }
 .task-content .task-text { width:100%; }
+.task-link { display: block; max-width: 100%; padding: 2px 0; border: 0; background: transparent; color: var(--accent); font-size: 12px; line-height: 1.5; text-align: left; text-decoration: underline; overflow-wrap: anywhere; }
+.task-link:hover { color: #244f3d; }
+.task-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.task-link-error { display: block; color: #925845; font-size: 11px; }
