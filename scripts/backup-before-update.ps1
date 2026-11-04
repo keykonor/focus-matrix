@@ -48,6 +48,13 @@ if (Test-Path -LiteralPath $imageDirectory -PathType Container) {
 }
 
 New-Item -ItemType Directory -Path $backupRoot -Force -ErrorAction Stop | Out-Null
+$documentDirectory = Join-Path $dataDirectory 'documents'
+if (Test-Path -LiteralPath $documentDirectory -PathType Container) {
+    foreach ($documentFile in Get-ChildItem -LiteralPath $documentDirectory -Recurse -File -ErrorAction Stop) {
+        $relativeName = $documentFile.FullName.Substring($documentDirectory.Length + 1)
+        $sources += [pscustomobject]@{ Path = $documentFile.FullName; Name = (Join-Path 'documents' $relativeName) }
+    }
+}
 New-Item -ItemType Directory -Path $backupDirectory -ErrorAction Stop | Out-Null
 $savedFiles = @()
 foreach ($item in $sources) {

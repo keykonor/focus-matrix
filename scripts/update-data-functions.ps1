@@ -71,7 +71,7 @@ function Read-VerifiedUpdateBackup([string]$BackupDirectory, [string]$DataDirect
         $path = [IO.Path]::GetFullPath((Join-Path $resolved $entry.name))
         if (-not $path.StartsWith($resolved + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'Invalid backup entry path.' }
         if ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -ne $entry.sha256) { throw ('Backup checksum failed: ' + $entry.name) }
-        if ($entry.name -like 'history\*' -or $entry.name -like 'history/*' -or $entry.name -like 'images\*' -or $entry.name -like 'images/*') {
+        if ($entry.name -like 'history\*' -or $entry.name -like 'history/*' -or $entry.name -like 'images\*' -or $entry.name -like 'images/*' -or $entry.name -like 'documents\*' -or $entry.name -like 'documents/*') {
             $live = Join-Path $DataDirectory $entry.name
             if ((Test-Path -LiteralPath $live -PathType Leaf) -and (Get-FileHash -LiteralPath $live -Algorithm SHA256).Hash -ne $entry.sha256) { throw 'An immutable history file changed. Update stopped.' }
         }
@@ -95,7 +95,7 @@ function Restore-UpdateSnapshot([string]$BackupDirectory, [string]$DataDirectory
         if ((Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash -ne $entry.sha256) { throw ('Restored snapshot checksum failed: ' + $entry.name) }
     }
     # Existing immutable history and image files are checked, never overwritten or deleted.
-    foreach ($entry in $manifest.files | Where-Object { $_.name -like 'history\*' -or $_.name -like 'history/*' -or $_.name -like 'images\*' -or $_.name -like 'images/*' }) {
+    foreach ($entry in $manifest.files | Where-Object { $_.name -like 'history\*' -or $_.name -like 'history/*' -or $_.name -like 'images\*' -or $_.name -like 'images/*' -or $_.name -like 'documents\*' -or $_.name -like 'documents/*' }) {
         $destination = Join-Path $DataDirectory $entry.name
         if (Test-Path -LiteralPath $destination) {
             if ((Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash -ne $entry.sha256) { throw 'An immutable history file changed. Restore stopped.' }

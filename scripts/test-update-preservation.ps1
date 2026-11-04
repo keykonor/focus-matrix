@@ -13,12 +13,20 @@ $window = [Text.Encoding]::UTF8.GetBytes('{"main":{"x":123,"width":720}}')
 New-Item -ItemType Directory -Path (Join-Path $backup 'images') -Force | Out-Null
 $imageFixture = [byte[]](137,80,78,71,13,10,26,10,1,2,3)
 [IO.File]::WriteAllBytes((Join-Path $backup 'images\fixture'), $imageFixture)
-$entries = @('focus-matrix.json', '.window-state.json', 'images\fixture') | ForEach-Object {
+New-Item -ItemType Directory -Path (Join-Path $backup 'documents') -Force | Out-Null
+[IO.File]::WriteAllBytes((Join-Path $backup 'documents\fixture.pdf'), $imageFixture)
+$entries = @('focus-matrix.json', '.window-state.json', 'images\fixture', 'documents\fixture.pdf') | ForEach-Object {
     [pscustomobject]@{ name=$_; sha256=(Get-FileHash -LiteralPath (Join-Path $backup $_)).Hash }
 }
 Write-AtomicJson (Join-Path $backup 'manifest.json') @{ files=@($entries) }
 Write-AtomicBytes (Join-Path $data 'focus-matrix.json') ([Text.Encoding]::UTF8.GetBytes('{"tasks":[],"changed":true}'))
 Restore-UpdateSnapshot $backup $data
+if ((Get-FileHash -LiteralPath (Join-Path $data 'documents\fixture.pdf')).Hash -ne (Get-FileHash -LiteralPath (Join-Path $backup 'documents\fixture.pdf')).Hash) { throw 'Document snapshot changed.' }
+[IO.File]::WriteAllBytes((Join-Path $data 'documents\fixture.pdf'), [byte[]](1,2,3))
+$documentBlocked = $false
+try { Restore-UpdateSnapshot $backup $data } catch { $documentBlocked = $true }
+if (-not $documentBlocked) { throw 'Changed immutable document was accepted.' }
+[IO.File]::WriteAllBytes((Join-Path $data 'documents\fixture.pdf'), $imageFixture)
 if ((Read-UpdateJson (Join-Path $data 'focus-matrix.json')).futureData -ne $unicodeText) { throw 'UTF-8 text did not round-trip.' }
 if ([Convert]::ToBase64String([IO.File]::ReadAllBytes((Join-Path $data 'focus-matrix.json'))) -ne [Convert]::ToBase64String($original)) { throw 'Full snapshot was not restored byte-for-byte.' }
 if ([Convert]::ToBase64String([IO.File]::ReadAllBytes((Join-Path $data '.window-state.json'))) -ne [Convert]::ToBase64String($window)) { throw 'Window snapshot changed.' }

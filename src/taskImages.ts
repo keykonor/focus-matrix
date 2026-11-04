@@ -1,4 +1,4 @@
-const suffix = /(?:\n\[FocusMatrix图片:[a-f0-9]{64}\])+$/;
+export const suffix = /(?:\n\[FocusMatrix(?:图片:[a-f0-9]{64}|文档:[a-f0-9]{64}\.[a-z0-9]+:[^\]\r\n]+)\])+$/;
 const marker = /\[FocusMatrix图片:([a-f0-9]{64})\]/g;
 let pendingImages = 0;
 export function beginImageSave(): void { pendingImages++; }

@@ -30,12 +30,15 @@ unsafe extern "system" {
 #[tauri::command]
 pub fn open_task_link(url: String) -> Result<(), String> {
     safe_web_url(&url)?;
+    open_target(&url)
+}
+pub(crate) fn open_target(url: &str) -> Result<(), String> {
     #[cfg(windows)]
     {
         let verb: Vec<u16> = "open\0".encode_utf16().collect();
         let target: Vec<u16> = format!("{url}\0").encode_utf16().collect();
         let result = unsafe { ShellExecuteW(0, verb.as_ptr(), target.as_ptr(), std::ptr::null(), std::ptr::null(), 1) };
-        if result <= 32 { return Err("无法打开链接，请检查默认浏览器设置".into()); }
+        if result <= 32 { return Err("无法打开，请检查电脑的默认应用设置".into()); }
         Ok(())
     }
     #[cfg(not(windows))]

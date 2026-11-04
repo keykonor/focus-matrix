@@ -4,6 +4,8 @@ import { flushSync } from 'react-dom';
 import { findTaskLinks } from '../taskLinks';
 import { beginImageSave, endImageSave, imageIds, visibleTaskText, withTaskImages } from '../taskImages';
 import { TaskImage } from './TaskImage';
+import { TaskDocuments } from './TaskDocuments';
+import { taskDocuments, withDocuments } from '../taskDocuments';
 import { SubtasksEditor } from './SubtasksEditor';
 import { newSubtask } from '../subtasks';
 import type { AppSettings, QuadrantType, Task } from '../types';
@@ -30,21 +32,23 @@ export function TaskItem({ task, mark, focus, fontSize, onChange, onDelete, onEn
   const [subtaskFocus, setSubtaskFocus] = useState<string | null>(null);
   const text = visibleTaskText(task.text);
   const ids = imageIds(task.text);
-  const updateText = (value: string, images = imageIds(taskRef.current.text)) => {
-    const next = withTaskImages(value, images);
+  const updateText = (value: string, images = imageIds(taskRef.current.text), documents = taskDocuments(taskRef.current.text), commit = false) => {
+    const next = withDocuments(withTaskImages(value, images), documents);
     taskRef.current = { ...taskRef.current, text: next };
-    onChange(task.id, { text: next });
+    onChange(task.id, { text: next }, commit);
   };
   const addImages = async (files: File[]) => {
     if (imagePending.current) { setImageError('图片正在保存，请稍候再添加。'); return; }
     imagePending.current = true; beginImageSave(); setAddingImage(true); setImageError('');
     try {
       for (const file of files) {
-        if (file.size > 10 * 1024 * 1024) throw Error('图片超过 10 MB，请选择较小的图片。');
+        const image = file.type.startsWith('image/');
+        if (file.size > (image ? 10 : 20) * 1024 * 1024) throw Error('附件超过大小限制（图片 10 MB，文档 20 MB）。');
         const bytes = Array.from(new Uint8Array(await file.arrayBuffer()));
-        const id = await invoke<string>('save_task_image', { bytes });
+        const id = await invoke<string>(image ? 'save_task_image' : 'save_task_document', { bytes, name: file.name });
         const current = taskRef.current.text;
-        flushSync(() => updateText(visibleTaskText(current), [...imageIds(current), id]));
+        flushSync(() => image ? updateText(visibleTaskText(current), [...imageIds(current), id]) :
+          updateText(visibleTaskText(current), imageIds(current), [...taskDocuments(current), { id, name: file.name }], true));
       }
     } catch (error) { setImageError(typeof error === 'string' ? error : error instanceof Error ? error.message : '图片保存失败，请重试。'); }
     finally { imagePending.current = false; endImageSave(); setAddingImage(false); }
@@ -101,6 +105,9 @@ export function TaskItem({ task, mark, focus, fontSize, onChange, onDelete, onEn
       {findTaskLinks(text).map(({url}) => <button key={url} type="button" className="task-link" title={url}
         onClick={() => { setLinkError(false); void invoke('open_task_link', {url}).catch(() => setLinkError(true)); }}>打开链接：{url}</button>)}
       {linkError && <span className="task-link-error" role="alert">无法打开链接，请检查默认浏览器设置。</span>}
+      <TaskDocuments text={task.text} busy={addingImage} onFiles={files => void addImages(files)}
+        onRemove={index => updateText(text, ids, taskDocuments(task.text).filter((_, i) => i !== index), true)}
+        onLink={url => updateText(`${text}${text ? '\n' : ''}${url}`, ids, taskDocuments(task.text), true)} />
       <SubtasksEditor focusId={subtaskFocus} items={task.subtasks ?? []} onChange={(subtasks, commit) => {
         taskRef.current = { ...taskRef.current, subtasks }; onChange(task.id, { subtasks }, commit);
       }} />

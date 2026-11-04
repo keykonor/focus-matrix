@@ -35,10 +35,13 @@ const interactionCheck = {
   emit,
   quitCalls: 0,
   syncContents: [] as unknown[],
+  documentOpens: [] as string[],
 };
 Object.assign(window, { interactionCheck });
 mockWindows('main');
 mockIPC(async (command, payload) => {
+  if (command === 'save_task_document') return 'b'.repeat(64) + '.pdf';
+  if (command === 'open_task_document') { interactionCheck.documentOpens.push(String(payload?.id)); return; }
   if (command === 'sync_cloud') interactionCheck.syncContents.push(structuredClone(payload?.content));
   if (paused.has(command)) await new Promise<void>((resolve, reject) => {
     waiting.set(command, [...(waiting.get(command) ?? []), { resolve, reject }]);
