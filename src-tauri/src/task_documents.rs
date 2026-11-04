@@ -32,6 +32,59 @@ fn save(root:&Path, name:&str, bytes:&[u8]) -> Result<String,String> {
 }
 #[tauri::command]
 pub fn save_task_document(app:tauri::AppHandle,name:String,bytes:Vec<u8>)->Result<String,String>{save(&app.path().app_data_dir().map_err(|e|e.to_string())?,&name,&bytes)}
+#[derive(serde::Serialize)]
+pub struct Document { id:String, name:String }
+#[cfg(windows)]
+#[link(name="user32")]
+unsafe extern "system" {
+ fn OpenClipboard(owner:isize)->i32;
+ fn CloseClipboard()->i32;
+ fn GetClipboardData(format:u32)->isize;
+}
+#[cfg(windows)]
+#[link(name="shell32")]
+unsafe extern "system" { fn DragQueryFileW(drop:isize,index:u32,file:*mut u16,size:u32)->u32; }
+#[cfg(windows)]
+fn clipboard_paths()->Result<Vec<PathBuf>,String>{
+ unsafe {
+  if OpenClipboard(0)==0 {return Err("剪贴板正忙，请重试粘贴".into());}
+  let drop=GetClipboardData(15);
+  let mut paths=Vec::new();
+  if drop!=0 {
+   let count=DragQueryFileW(drop,u32::MAX,std::ptr::null_mut(),0);
+   if count>64 {CloseClipboard();return Err("请每次粘贴不超过 64 份文档".into());}
+   for index in 0..count {
+    let length=DragQueryFileW(drop,index,std::ptr::null_mut(),0);
+    let mut name=vec![0u16;length as usize+1];
+    let copied=DragQueryFileW(drop,index,name.as_mut_ptr(),length+1);
+    paths.push(PathBuf::from(String::from_utf16_lossy(&name[..copied as usize])));
+   }
+  }
+  CloseClipboard();Ok(paths)
+ }
+}
+#[tauri::command]
+pub fn paste_task_documents(app:tauri::AppHandle)->Result<Vec<Document>,String>{
+ let root=app.path().app_data_dir().map_err(|e|e.to_string())?;
+ #[cfg(windows)] let paths=clipboard_paths()?;
+ #[cfg(not(windows))] let paths:Vec<PathBuf>=Vec::new();
+ let mut inputs=Vec::new();
+ // Check every file before importing, so an unsupported selection does not
+ // partially attach documents while reporting the whole paste as failed.
+ for path in paths {
+  let name=path.file_name().ok_or("文件名无效")?.to_string_lossy().into_owned();
+  extension(&name.to_ascii_lowercase())?;
+  let metadata=fs::metadata(&path).map_err(|_|"无法读取复制的文档")?;
+  if !metadata.is_file() || metadata.len()>LIMIT as u64 {return Err("请选择不超过 20 MB 的文档文件".into());}
+  inputs.push((path,name));
+ }
+ let mut result=Vec::new();
+ for (path,name) in inputs {
+  let bytes=fs::read(path).map_err(|_|"无法读取复制的文档")?;
+  result.push(Document{id:save(&root,&name,&bytes)?,name});
+ }
+ Ok(result)
+}
 #[tauri::command]
 pub fn open_task_document(app:tauri::AppHandle,id:String)->Result<(),String>{
     let path=document_path(&app.path().app_data_dir().map_err(|e|e.to_string())?,&id)?;

@@ -99,12 +99,15 @@ try {
   await mkdir(join('outputs', 'subtasks-20261104'), { recursive: true });
   await send('Page.navigate', { url: origin + '/calendar-preview.html' });
   await wait("document.querySelectorAll('.subtask-row').length===2 && document.querySelector('.calendar-button')?.disabled===false");
-  await evaluate('(() => {const input=document.querySelector(' + JSON.stringify(root + ' input[type=file]') + ');const dt=new DataTransfer();dt.items.add(new File(["synthetic document"],"测试报告.pdf",{type:"application/pdf"}));input.files=dt.files;input.dispatchEvent(new Event("change",{bubbles:true}));})()');
+  assert.equal(await evaluate("document.querySelectorAll('.document-actions,.document-link-entry,input[type=file]').length"),0);
+  await evaluate('(() => {const target=document.querySelector(' + JSON.stringify(root + ' .task-text') + ');const dt=new DataTransfer();dt.items.add(new File(["synthetic document"],"测试报告.pdf",{type:"application/pdf"}));target.dispatchEvent(new DragEvent("drop",{dataTransfer:dt,bubbles:true,cancelable:true}));})()');
   await wait("document.querySelector('.document-open')?.textContent==='测试报告.pdf'");
   await click(root + ' .document-open');
   assert.equal(await evaluate('window.interactionCheck.documentOpens.length'),1);
   await wait("JSON.parse(sessionStorage.getItem('calendar-check-data')).tasks[0].text.includes('FocusMatrix文档:')");
   assert.equal(await evaluate('document.querySelector(' + JSON.stringify(root + ' .task-text') + ').value'),'准备本周汇报');
+  await evaluate('document.querySelector(' + JSON.stringify(root + ' .task-text') + ').dispatchEvent(new ClipboardEvent("paste",{clipboardData:new DataTransfer(),bubbles:true,cancelable:true}))');
+  await wait("[...document.querySelectorAll('.document-open')].some(e=>e.textContent==='复制的文档.pdf')");
   assert.equal(await evaluate("document.querySelectorAll('.subtask-row input[type=checkbox], .subtasks-toolbar').length"), 0);
   await click(root + ' .subtask-add-icon');
   await wait("document.querySelectorAll('.subtask-row').length===3");
@@ -165,10 +168,6 @@ try {
 
   const keyboardRoot = '.task-item[data-task-id="keyboard"]';
   await evaluate('document.querySelector(' + JSON.stringify(keyboardRoot + ' > .task-content > textarea') + ').focus()');
-  for (let n=0;n<2;n++) {
-    await send('Input.dispatchKeyEvent', { type:'keyDown',key:'Tab',code:'Tab',windowsVirtualKeyCode:9 });
-    await send('Input.dispatchKeyEvent', { type:'keyUp',key:'Tab',code:'Tab',windowsVirtualKeyCode:9 });
-  }
   await send('Input.dispatchKeyEvent', { type:'keyDown',key:'Tab',code:'Tab',windowsVirtualKeyCode:9 });
   await send('Input.dispatchKeyEvent', { type:'keyUp',key:'Tab',code:'Tab',windowsVirtualKeyCode:9 });
   await delay(100);

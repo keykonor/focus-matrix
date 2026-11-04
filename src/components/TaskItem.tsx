@@ -5,7 +5,7 @@ import { findTaskLinks } from '../taskLinks';
 import { beginImageSave, endImageSave, imageIds, visibleTaskText, withTaskImages } from '../taskImages';
 import { TaskImage } from './TaskImage';
 import { TaskDocuments } from './TaskDocuments';
-import { taskDocuments, withDocuments } from '../taskDocuments';
+import { taskDocuments, withDocuments, type TaskDocument } from '../taskDocuments';
 import { SubtasksEditor } from './SubtasksEditor';
 import { newSubtask } from '../subtasks';
 import type { AppSettings, QuadrantType, Task } from '../types';
@@ -38,7 +38,7 @@ export function TaskItem({ task, mark, focus, fontSize, onChange, onDelete, onEn
     onChange(task.id, { text: next }, commit);
   };
   const addImages = async (files: File[]) => {
-    if (imagePending.current) { setImageError('图片正在保存，请稍候再添加。'); return; }
+    if (imagePending.current) { setImageError('附件正在保存，请稍候再添加。'); return; }
     imagePending.current = true; beginImageSave(); setAddingImage(true); setImageError('');
     try {
       for (const file of files) {
@@ -50,8 +50,18 @@ export function TaskItem({ task, mark, focus, fontSize, onChange, onDelete, onEn
         flushSync(() => image ? updateText(visibleTaskText(current), [...imageIds(current), id]) :
           updateText(visibleTaskText(current), imageIds(current), [...taskDocuments(current), { id, name: file.name }], true));
       }
-    } catch (error) { setImageError(typeof error === 'string' ? error : error instanceof Error ? error.message : '图片保存失败，请重试。'); }
+    } catch (error) { setImageError(typeof error === 'string' ? error : error instanceof Error ? error.message : '附件保存失败，请重试。'); }
     finally { imagePending.current = false; endImageSave(); setAddingImage(false); }
+  };
+  const pasteDocuments = async () => {
+    if (imagePending.current) return;
+    imagePending.current = true; beginImageSave(); setAddingImage(true); setImageError('');
+    try {
+      const documents = await invoke<TaskDocument[]>('paste_task_documents');
+      if (documents.length) { const current=taskRef.current.text;
+        flushSync(() => updateText(visibleTaskText(current),imageIds(current),[...taskDocuments(current),...documents],true)); }
+    } catch (cause) { setImageError(typeof cause==='string'?cause:'文档粘贴失败，请重试。'); }
+    finally { imagePending.current=false;endImageSave();setAddingImage(false); }
   };
   useEffect(() => { if (focus) inputRef.current?.focus(); }, [focus]);
   useLayoutEffect(() => {
@@ -88,9 +98,12 @@ export function TaskItem({ task, mark, focus, fontSize, onChange, onDelete, onEn
         if (files.length) { void addImages(files); return; }
         const value = event.dataTransfer.getData('text/uri-list').split(/\r?\n/).find(line => /^https?:\/\//i.test(line)) || event.dataTransfer.getData('text/plain');
         if (value) updateText(`${visibleTaskText(taskRef.current.text)}${visibleTaskText(taskRef.current.text) ? '\n' : ''}${value}`);
-      }}><textarea ref={inputRef} className="task-text" rows={1} value={text} placeholder="输入任务，回车保存…" aria-label="任务内容" title="Enter 保存并新增，Shift+Enter 换行；可粘贴或拖入图片和链接"
+      }}><textarea ref={inputRef} className="task-text" rows={1} value={text} placeholder="输入任务，回车保存…" aria-label="任务内容" title="Enter 保存并新增，Shift+Enter 换行；可粘贴或拖入文档、图片和链接"
       onChange={(event) => updateText(event.target.value)}
-      onPaste={event => { const files = Array.from(event.clipboardData.files); if (files.length) { event.preventDefault(); void addImages(files); } }}
+      onPaste={event => { const files = Array.from(event.clipboardData.files);
+        if (files.length) { event.preventDefault(); void addImages(files); }
+        else if (!event.clipboardData.getData('text/plain') && !event.clipboardData.getData('text/html')) { event.preventDefault(); void pasteDocuments(); }
+      }}
       onKeyDown={(event) => {
         if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); if (!imagePending.current) onEnter(task.quadrant, task.id); }
         if (event.key === 'Delete' && !task.text && !task.subtasks?.length && !imagePending.current) { event.preventDefault(); onDelete(task.id); }
@@ -99,15 +112,14 @@ export function TaskItem({ task, mark, focus, fontSize, onChange, onDelete, onEn
         if (event.relatedTarget instanceof Node && event.currentTarget.closest('.task-item')?.contains(event.relatedTarget)) return;
         if (!taskRef.current.text.trim() && !taskRef.current.subtasks?.length && !imagePending.current) onDelete(task.id);
       }} />
-      {addingImage && <span role="status" className="task-image-message">正在保存图片…</span>}
+      {addingImage && <span role="status" className="task-image-message">正在保存附件…</span>}
       {imageError && <span role="alert" className="task-image-message">{imageError}</span>}
       {ids.map((id, index) => <TaskImage key={`${id}-${index}`} id={id} onRemove={() => updateText(visibleTaskText(taskRef.current.text), imageIds(taskRef.current.text).filter((_, i) => i !== index))} />)}
       {findTaskLinks(text).map(({url}) => <button key={url} type="button" className="task-link" title={url}
         onClick={() => { setLinkError(false); void invoke('open_task_link', {url}).catch(() => setLinkError(true)); }}>打开链接：{url}</button>)}
       {linkError && <span className="task-link-error" role="alert">无法打开链接，请检查默认浏览器设置。</span>}
-      <TaskDocuments text={task.text} busy={addingImage} onFiles={files => void addImages(files)}
-        onRemove={index => updateText(text, ids, taskDocuments(task.text).filter((_, i) => i !== index), true)}
-        onLink={url => updateText(`${text}${text ? '\n' : ''}${url}`, ids, taskDocuments(task.text), true)} />
+      <TaskDocuments text={task.text} busy={addingImage}
+        onRemove={index => updateText(text, ids, taskDocuments(task.text).filter((_, i) => i !== index), true)} />
       <SubtasksEditor focusId={subtaskFocus} items={task.subtasks ?? []} onChange={(subtasks, commit) => {
         taskRef.current = { ...taskRef.current, subtasks }; onChange(task.id, { subtasks }, commit);
       }} />
