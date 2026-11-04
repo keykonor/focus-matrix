@@ -108,7 +108,7 @@ Android 当前源码为 1.0.4，包名 `com.focusmatrix.mobile`。原签名密�
 
 ## 任务文档
 
-每个任务下方的“添加文档”可选择一份或多份 PDF、Word、Excel、PowerPoint、TXT、Markdown、CSV、RTF 或 OpenDocument 文档，每份不超过 20 MB。也可将文档拖入任务或从剪贴板添加文件。软件把文件副本保存在本机 `documents/`，点击文件名用默认应用打开只读副本，编辑请另存为。移除任务引用不会删除历史需要的附件文件。
+每个任务下方的“添加文档”可选择一份或多份 PDF、Word、Excel、PowerPoint、TXT、Markdown、CSV、RTF 或 OpenDocument 文档，每份不超过 20 MB。也可将文档拖入任务。软件把文件副本保存在本机 `documents/`，点击文件名用默认应用打开只读副本，编辑请另存为。移除任务引用不会删除历史需要的附件文件。
 
 “文档链接”用于添加 HTTP/HTTPS 在线文档地址，添加后点击“打开链接”使用默认浏览器访问。文件副本随本机更新备份、历史与归档保留，目前不上传至手机或分享页面；在线文档的访问权限由原网站决定。
 
