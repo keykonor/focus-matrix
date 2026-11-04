@@ -20,7 +20,7 @@
         "minHeight": 360,
         "center": true,
         "decorations": true,
-        "dragDropEnabled": false,
+        "dragDropEnabled": true,
         "transparent": true,
         "visible": true
       }
@@ -55,7 +55,8 @@
     "licenseFile": "../LICENSE",
     "resources": {
       "../LICENSE": "LICENSE.txt",
-      "../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md"
+      "../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md",
+      "../licenses/wry-MIT.txt": "licenses/wry-MIT.txt"
     },
     "shortDescription": "Windows desktop task matrix and daily notes"
   }

@@ -20,12 +20,14 @@ interface Props {
   onChange: (id: string, patch: Partial<Pick<Task, 'text' | 'completed' | 'subtasks'>>, commit?: boolean) => void;
   onDelete: (id: string) => void;
   onEnter: (quadrant: QuadrantType, afterId: string) => void;
+  onMove: (id: string, quadrant: QuadrantType) => void;
 }
 
-export function TaskItem({ task, mark, focus, fontSize, onChange, onDelete, onEnter }: Props) {
+export function TaskItem({ task, mark, focus, fontSize, onChange, onDelete, onEnter, onMove }: Props) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const taskRef = useRef(task); taskRef.current = task;
   const imagePending = useRef(false);
+  const dragStart=useRef<{x:number;y:number}|null>(null);
   const [linkError, setLinkError] = useState(false);
   const [imageError, setImageError] = useState('');
   const [addingImage, setAddingImage] = useState(false);
@@ -53,16 +55,28 @@ export function TaskItem({ task, mark, focus, fontSize, onChange, onDelete, onEn
     } catch (error) { setImageError(typeof error === 'string' ? error : error instanceof Error ? error.message : '附件保存失败，请重试。'); }
     finally { imagePending.current = false; endImageSave(); setAddingImage(false); }
   };
-  const pasteDocuments = async () => {
-    if (imagePending.current) return;
+  const pasteDocuments = async (command='paste_task_documents',args:Record<string,unknown>={}) => {
+    if (imagePending.current) {setImageError('附件正在保存，请稍候再添加。');return;}
     imagePending.current = true; beginImageSave(); setAddingImage(true); setImageError('');
     try {
-      const documents = await invoke<TaskDocument[]>('paste_task_documents');
+      const documents = await invoke<(TaskDocument & {kind?:string})[]>(command,args);
       if (documents.length) { const current=taskRef.current.text;
-        flushSync(() => updateText(visibleTaskText(current),imageIds(current),[...taskDocuments(current),...documents],true)); }
+        flushSync(() => updateText(visibleTaskText(current),[...imageIds(current),...documents.filter(d=>d.kind==='image').map(d=>d.id)],
+          [...taskDocuments(current),...documents.filter(d=>d.kind!=='image')],true)); }
     } catch (cause) { setImageError(typeof cause==='string'?cause:'文档粘贴失败，请重试。'); }
     finally { imagePending.current=false;endImageSave();setAddingImage(false); }
   };
+  const receiveDrop=({id,text}:{id?:string;text?:string})=>{
+    if(id)void pasteDocuments('take_dropped_files',{id});
+    else if(text) {const current=visibleTaskText(taskRef.current.text);updateText(`${current}${current?'\n':''}${text}`);}
+  };
+  const nativeImport=useRef(receiveDrop);nativeImport.current=receiveDrop;
+  useLayoutEffect(()=>{
+    const row=inputRef.current?.closest('.task-item');
+    const receive=(event:Event)=>nativeImport.current((event as CustomEvent<{id?:string;text?:string}>).detail);
+    row?.addEventListener('focus-matrix:file-drop',receive);
+    return()=>row?.removeEventListener('focus-matrix:file-drop',receive);
+  },[]);
   useEffect(() => { if (focus) inputRef.current?.focus(); }, [focus]);
   useLayoutEffect(() => {
     const input = inputRef.current;
@@ -86,7 +100,15 @@ export function TaskItem({ task, mark, focus, fontSize, onChange, onDelete, onEn
   }, []);
 
   return <div className={`task-item${task.completed ? ' is-complete' : ''}`} data-task-id={task.id}>
-    <span className="drag-handle" draggable title="拖动到其他象限" aria-label="拖动任务"
+    <span className="drag-handle" draggable={false} title="拖动到其他象限" aria-label="拖动任务"
+      onPointerDown={event=>{dragStart.current={x:event.clientX,y:event.clientY};event.currentTarget.setPointerCapture(event.pointerId);}}
+      onPointerUp={event=>{
+        const start=dragStart.current;dragStart.current=null;
+        if(!start||Math.hypot(event.clientX-start.x,event.clientY-start.y)<6)return;
+        const section=document.elementFromPoint(event.clientX,event.clientY)?.closest<HTMLElement>('.quadrant');
+        const quadrant=section?.dataset.quadrant as QuadrantType|undefined;
+        if(quadrant)onMove(task.id,quadrant);
+      }} onPointerCancel={()=>{dragStart.current=null;}}
       onDragStart={(event) => { event.dataTransfer.setData('text/task-id', task.id); event.dataTransfer.effectAllowed = 'move'; event.currentTarget.parentElement?.classList.add('is-dragging'); }}
       onDragEnd={(event) => event.currentTarget.parentElement?.classList.remove('is-dragging')}>⋮⋮</span>
     <input type="checkbox" checked={task.completed} onChange={(event) => onChange(task.id, { completed: event.target.checked })} aria-label={`完成 ${task.text || '任务'}`} />

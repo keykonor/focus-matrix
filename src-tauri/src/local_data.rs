@@ -26,7 +26,7 @@ fn durable_write(path: &Path, bytes: &[u8], exclusive: bool) -> Result<(), Strin
     let mut file = options.open(path).map_err(|e| e.to_string())?;
     file.write_all(bytes).and_then(|_| file.sync_all()).map_err(|e| e.to_string())
 }
-fn recover_write(path: &Path) -> Result<(), String> {
+pub(crate) fn recover_write(path: &Path) -> Result<(), String> {
     let (pending, ready) = journal_paths(path);
     if !ready.exists() { return Ok(()); }
     let bytes = fs::read(&pending).map_err(|_| "保存日志不完整，已停止写入以保留原内容")?;
@@ -42,7 +42,10 @@ fn recover_write(path: &Path) -> Result<(), String> {
     let _ = fs::remove_file(&pending);
     Ok(())
 }
-fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
+pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    atomic_write_with_rename(path, bytes, |source,target| fs::rename(source,target))
+}
+pub(crate) fn atomic_write_with_rename(path: &Path, bytes: &[u8], rename: impl FnOnce(&Path,&Path)->std::io::Result<()>) -> Result<(), String> {
     let parent = path.parent().ok_or("Invalid data path")?;
     fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     recover_write(path)?;
@@ -51,7 +54,7 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let mut file = OpenOptions::new().write(true).create_new(true).open(&temporary).map_err(|e| e.to_string())?;
     file.write_all(bytes).and_then(|_| file.sync_all()).map_err(|e| e.to_string())?;
     drop(file);
-    match fs::rename(&temporary, path) {
+    match rename(&temporary, path) {
         Ok(()) => Ok(()),
         Err(error) if cfg!(windows) && matches!(error.raw_os_error(), Some(17 | 1175 | 6002)) => {
             // Some EFS/redirected Windows directories reject same-directory

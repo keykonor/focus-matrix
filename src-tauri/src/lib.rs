@@ -1,3 +1,5 @@
+#[cfg(windows)]
+mod file_drop;
 use std::{fs, sync::atomic::{AtomicBool, Ordering}, thread, time::{Duration, SystemTime, UNIX_EPOCH}};
 use tauri::{menu::{Menu, MenuItem}, tray::TrayIconBuilder, Emitter, Manager};
 use tauri_plugin_window_state::{AppHandleExt, StateFlags};
@@ -95,6 +97,7 @@ pub fn run() {
         .manage(history::HistoryState::default())
         .manage(cloud::CloudState::default())
         .manage(local_data::LocalDataState::default())
+        .manage(task_documents::DropState::default())
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_window_state::Builder::default()
             .with_state_flags(StateFlags::POSITION | StateFlags::SIZE | StateFlags::MAXIMIZED)
@@ -103,7 +106,7 @@ pub fn run() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             Some(vec!["--autostart"]),
         ))
-        .invoke_handler(tauri::generate_handler![backup_corrupt_store, quit_app, set_desktop_layer, task_links::open_task_link, task_images::save_task_image, task_images::read_task_image, task_documents::save_task_document, task_documents::open_task_document, task_documents::paste_task_documents,
+        .invoke_handler(tauri::generate_handler![backup_corrupt_store, quit_app, set_desktop_layer, task_links::open_task_link, task_images::save_task_image, task_images::read_task_image, task_documents::save_task_document, task_documents::open_task_document, task_documents::paste_task_documents, task_documents::take_dropped_files,
             local_data::read_local_data, local_data::commit_local_data, local_data::read_update_request, local_data::finish_update_prepare, local_data::ack_update_restore,
             history::save_content_version, history::list_content_versions, history::get_content_version,
             cloud::get_cloud_status, cloud::configure_cloud, cloud::sync_cloud, cloud::set_cloud_sharing, cloud::rotate_cloud_link, cloud::ack_cloud_applied, cloud::set_share_editing, cloud::create_mobile_pairing, cloud::list_mobile_devices, cloud::revoke_mobile_device, cloud::get_cloud_changes])
@@ -117,6 +120,8 @@ pub fn run() {
         })
         .setup(move |app| {
             if let Some(window) = app.get_webview_window("main") {
+                #[cfg(windows)]
+                file_drop::install(&window)?;
                 window.unminimize()?;
                 window.show()?;
                 if launched_at_login {

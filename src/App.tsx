@@ -104,6 +104,27 @@ export default function App() {
   }, [refreshInteractionLock]);
 
   const readContent = useCallback(() => ({tasks:dataRef.current.tasks,dailyMemos:dataRef.current.dailyMemos,dailyDiaries:dataRef.current.dailyDiaries}),[]);
+  useEffect(()=>{
+    let disposed=false;let unlisten:UnlistenFn|undefined;
+    void listen<{id?:string;text?:string;x:number;y:number;name?:string}>('focus-matrix://files-dropped',event=>{
+      if(!canEdit())return;
+      const {id,text,x,y,name}=event.payload;
+      const hit=document.elementFromPoint(x,y);
+      const row=hit?.closest<HTMLElement>('.task-item');
+      if(row){row.dispatchEvent(new CustomEvent('focus-matrix:file-drop',{detail:{id,text}}));return;}
+      const quadrant=hit?.closest<HTMLElement>('.quadrant')?.dataset.quadrant as QuadrantType|undefined;
+      if(!quadrant||!quadrants.includes(quadrant)){setSaveNotice('请将文件拖到任务或四象限空白处');return;}
+      const task={...newTask(quadrant),text:text||name||'文件'};
+      setTasks(current=>[...current,task]);setFocusId(task.id);
+      if(!id)return;
+      const deliver=(attempt=0)=>{
+        const target=document.querySelector(`[data-task-id="${task.id}"]`);
+        if(target)target.dispatchEvent(new CustomEvent('focus-matrix:file-drop',{detail:{id}}));
+        else if(attempt<30)requestAnimationFrame(()=>deliver(attempt+1));
+      };requestAnimationFrame(()=>deliver());
+    }).then(off=>{if(disposed)off();else unlisten=off;}).catch(error=>logError('文件拖放不可用',error));
+    return()=>{disposed=true;unlisten?.();};
+  },[canEdit]);
   const hasPendingTaskEdits = useCallback(() => hasPendingImages() || !same(dataRef.current.tasks, storeRef.current?.baseline?.tasks ?? []), []);
   const readSavedContent = useCallback(() => {
     const saved = storeRef.current?.baseline ?? dataRef.current;

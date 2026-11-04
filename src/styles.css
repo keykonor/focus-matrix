@@ -141,6 +141,7 @@ button { cursor: pointer; }
 .task-item.is-dragging { opacity: .46; }
 .drag-handle { flex: none; width: 11px; padding-right: 3px; color: var(--accent); font-size: 14px; letter-spacing: -4px; opacity: .22; cursor: grab; user-select: none; }
 .drag-handle:active { cursor: grabbing; }
+.drag-handle { touch-action: none; }
 .task-item:hover .drag-handle, .task-item:focus-within .drag-handle { opacity: .5; }
 .task-item input[type='checkbox'] {
   appearance: none;

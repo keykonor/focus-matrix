@@ -29,7 +29,7 @@ fn image_type(bytes: &[u8]) -> Option<&'static str> {
 fn valid_id(id: &str) -> bool {
     id.len() == 64 && id.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
-fn save_image(root: &Path, bytes: &[u8]) -> Result<String, String> {
+pub(crate) fn save_image(root: &Path, bytes: &[u8]) -> Result<String, String> {
     if bytes.len() > LIMIT || image_type(bytes).is_none() { return Err("图片格式不支持或超过 10 MB".into()); }
     let id = format!("{:x}", Sha256::digest(bytes));
     let dir = root.join("images");

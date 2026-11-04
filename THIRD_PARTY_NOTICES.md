@@ -25,3 +25,6 @@ For an exact installed dependency tree use `npm ls --all` and `cargo tree
 --manifest-path src-tauri/Cargo.toml --locked`; retain the corresponding upstream
 license texts when redistributing those components. This notice is an index,
 not a substitute for the upstream license files.
+
+Windows file/text drop registration is adapted from Wry (MIT). The upstream
+notice is retained at licenses/wry-MIT.txt.

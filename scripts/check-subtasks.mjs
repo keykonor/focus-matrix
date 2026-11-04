@@ -108,6 +108,20 @@ try {
   assert.equal(await evaluate('document.querySelector(' + JSON.stringify(root + ' .task-text') + ').value'),'准备本周汇报');
   await evaluate('document.querySelector(' + JSON.stringify(root + ' .task-text') + ').dispatchEvent(new ClipboardEvent("paste",{clipboardData:new DataTransfer(),bubbles:true,cancelable:true}))');
   await wait("[...document.querySelectorAll('.document-open')].some(e=>e.textContent==='复制的文档.pdf')");
+  const nativeDrop=async (selector,extra)=>{
+    await evaluate(`(() => {const r=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();window.interactionCheck.emit('focus-matrix://files-dropped',{x:r.x+r.width/2,y:r.y+r.height/2,...${JSON.stringify(extra)}});})()`);
+  };
+  await nativeDrop(root+' .task-text',{id:'isolated-drop'});
+  await wait("[...document.querySelectorAll('.document-open')].some(e=>e.textContent==='原生拖入.txt')");
+  assert.equal(await evaluate('document.querySelector(' + JSON.stringify(root + ' .task-text') + ').value'),'准备本周汇报');
+  await nativeDrop('.quadrant-not-important-not-urgent .quadrant-heading',{id:'isolated-empty',name:'原生拖入.txt'});
+  await wait("document.querySelector('.quadrant-not-important-not-urgent .document-open')");
+  await click('.quadrant-not-important-not-urgent .delete-button');
+  await wait("document.querySelectorAll('.task-item').length===3");
+  await nativeDrop(root+' .task-text',{text:'https://example.com/matrix-doc'});
+  await wait("document.querySelector('.task-link')");
+  // Restore synthetic fixture's title for the existing history assertions.
+  await edit(root+' .task-text','准备本周汇报');await click('.save-version-button');
   assert.equal(await evaluate("document.querySelectorAll('.subtask-row input[type=checkbox], .subtasks-toolbar').length"), 0);
   await click(root + ' .subtask-add-icon');
   await wait("document.querySelectorAll('.subtask-row').length===3");
@@ -142,7 +156,11 @@ try {
   await wait("JSON.parse(sessionStorage.getItem('calendar-check-data')).tasks[0].completed");
   assert.equal((await data()).tasks[0].subtasks[2].completed, false, 'Parent completion checked children');
   assert.equal(await evaluate('getComputedStyle(document.querySelector(' + JSON.stringify(root + ' .subtask-row:nth-child(3) textarea') + ')).textDecorationLine.includes("line-through")'), false);
-  await evaluate('(() => { const d=new DataTransfer();d.setData("text/task-id","parent");document.querySelector(".quadrant-important-not-urgent").dispatchEvent(new DragEvent("drop",{dataTransfer:d,bubbles:true,cancelable:true}));})()');
+  await evaluate("document.querySelector(\".quadrant-important-urgent\").scrollTop=0");
+  const drag=await evaluate(`(() => {const a=document.querySelector('${root} .drag-handle').getBoundingClientRect();const b=document.querySelector('.quadrant-important-not-urgent .quadrant-heading').getBoundingClientRect();return {start:{x:a.x+a.width/2,y:a.y+a.height/2},end:{x:b.x+b.width/2,y:b.y+b.height/2}}})()`);
+  await send('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',clickCount:1,...drag.start});
+  await send('Input.dispatchMouseEvent',{type:'mouseMoved',button:'left',buttons:1,...drag.end});
+  await send('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',clickCount:1,...drag.end});
   await wait("JSON.parse(sessionStorage.getItem('calendar-check-data')).tasks[0].quadrant==='important-not-urgent'");
   const saved = await data();
   await send('Page.reload');
