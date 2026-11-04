@@ -11,6 +11,31 @@ pub struct HistoryState(Mutex<Option<String>>);
 #[serde(rename_all = "camelCase")]
 pub struct SavedTask {
     id: String, text: String, completed: bool, created_at: String, updated_at: String, quadrant: String,
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "read_subtasks")]
+    subtasks: Option<Vec<SavedSubtask>>,
+}
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedSubtask {
+    id: String, text: String, completed: bool, created_at: String, updated_at: String,
+    #[serde(flatten)] extra: BTreeMap<String, serde_json::Value>,
+}
+pub(crate) fn validate_subtasks(value: &serde_json::Value) -> Result<(), String> {
+    let items = value.as_array().ok_or("子任务列表无法读取，停止保存")?;
+    let mut ids = std::collections::HashSet::new();
+    for item in items {
+        let id = item["id"].as_str().ok_or("子任务标识无法读取")?;
+        if id.is_empty() || !ids.insert(id) || !item["text"].is_string() || !item["completed"].is_boolean() ||
+            !item["createdAt"].is_string() || !item["updatedAt"].is_string() || item.get("subtasks").is_some() {
+            return Err("子任务内容无法完整读取，停止保存以保护原内容".into());
+        }
+    }
+    Ok(())
+}
+fn read_subtasks<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Option<Vec<SavedSubtask>>, D::Error> {
+    let value = serde_json::Value::deserialize(deserializer)?;
+    validate_subtasks(&value).map_err(serde::de::Error::custom)?;
+    serde_json::from_value(value).map(Some).map_err(serde::de::Error::custom)
 }
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
@@ -184,7 +209,7 @@ mod tests {
         fs::create_dir_all(&root).unwrap(); root
     }
     fn content(text: &str) -> Content {
-        Content { tasks: vec![SavedTask { id: "one".into(), text: text.into(), completed: false, created_at: "original".into(), updated_at: "original".into(), quadrant: "important-urgent".into() }], daily_memos: BTreeMap::from([("2026-10-03".into(), SavedMemo { evening: "晚间记录".into(), ..Default::default() })]), daily_diaries: BTreeMap::new() }
+        Content { tasks: vec![SavedTask { id: "one".into(), text: text.into(), completed: false, created_at: "original".into(), updated_at: "original".into(), quadrant: "important-urgent".into(), subtasks: None }], daily_memos: BTreeMap::from([("2026-10-03".into(), SavedMemo { evening: "晚间记录".into(), ..Default::default() })]), daily_diaries: BTreeMap::new() }
     }
     #[test]
     fn previous_current_manual_and_restore_versions_are_durable() {
@@ -236,6 +261,19 @@ mod tests {
         fs::write(history_dir(&root), b"blocking-file").unwrap();
         assert!(save(&root, &mut None, content("新内容"), Reason::Automatic).is_err());
         assert_eq!(fs::read(root.join("focus-matrix.json")).unwrap(), original);
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn subtasks_survive_history_and_invalid_children_are_rejected() {
+        let mut raw = serde_json::to_value(content("parent")).unwrap();
+        raw["tasks"][0]["subtasks"] = serde_json::json!([{"id":"child","text":"step","completed":false,"createdAt":"old","updatedAt":"old"}]);
+        let parsed: Content = serde_json::from_value(raw.clone()).unwrap();
+        assert_eq!(serde_json::to_value(&parsed).unwrap(), raw);
+        let root = temp_root();
+        let saved = save(&root, &mut None, parsed.clone(), Reason::Manual).unwrap().unwrap();
+        assert_eq!(get(&root, &saved.id).unwrap().content, parsed);
+        raw["tasks"][0]["subtasks"][0]["completed"] = serde_json::json!("broken");
+        assert!(serde_json::from_value::<Content>(raw).is_err());
         fs::remove_dir_all(root).unwrap();
     }
     #[test]

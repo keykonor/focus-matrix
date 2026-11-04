@@ -1,6 +1,14 @@
 export const quadrants = ['important-not-urgent', 'important-urgent', 'not-important-not-urgent', 'urgent-not-important'] as const;
 export type QuadrantType = typeof quadrants[number];
 
+export interface Subtask {
+  id: string;
+  text: string;
+  completed: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Task {
   id: string;
   text: string;
@@ -8,6 +16,7 @@ export interface Task {
   createdAt: string;
   updatedAt: string;
   quadrant: QuadrantType;
+  subtasks?: Subtask[];
 }
 
 export interface AppSettings {

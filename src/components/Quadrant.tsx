@@ -10,7 +10,7 @@ interface Props {
   focusId: string | null;
   fontSize: AppSettings['fontSize'];
   onAdd: (quadrant: QuadrantType, afterId?: string) => void;
-  onChange: (id: string, patch: Partial<Pick<Task, 'text' | 'completed'>>) => void;
+  onChange: (id: string, patch: Partial<Pick<Task, 'text' | 'completed' | 'subtasks'>>, commit?: boolean) => void;
   onDelete: (id: string) => void;
   onMove: (id: string, quadrant: QuadrantType) => void;
 }

@@ -4,6 +4,7 @@ import { quadrantNames, quadrants } from '../types';
 import { groupTaskVersions } from '../taskHistory';
 import { imageIds, visibleTaskText } from '../taskImages';
 import { TaskImage } from './TaskImage';
+import { SubtasksPreview } from './SubtasksEditor';
 
 const timeFormatter = new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
 interface Props {
@@ -109,7 +110,7 @@ export function HistoryModal({ onClose, onSaveVersion, onRestore }: Props) {
             {quadrants.map((quadrant) => {
               const tasks = version.content.tasks.filter((task) => task.quadrant === quadrant);
               return tasks.length > 0 && <section className="history-preview-section" key={quadrant}><h3>{quadrantNames[quadrant]}</h3>
-                {tasks.map((task) => <div key={task.id}><p className={task.completed ? 'history-task completed' : 'history-task'}>{task.completed ? '✓ ' : '· '}{visibleTaskText(task.text) || (imageIds(task.text).length ? '图片任务' : '（空白任务）')}</p>{imageIds(task.text).map((id, index) => <TaskImage key={`${id}-${index}`} id={id} />)}</div>)}
+                {tasks.map((task) => <div key={task.id}><p className={task.completed ? 'history-task completed' : 'history-task'}>{task.completed ? '✓ ' : '· '}{visibleTaskText(task.text) || (imageIds(task.text).length ? '图片任务' : '（空白任务）')}</p><SubtasksPreview items={task.subtasks} />{imageIds(task.text).map((id, index) => <TaskImage key={`${id}-${index}`} id={id} />)}</div>)}
               </section>;
             })}
             {version.content.tasks.length === 0 && <p className="history-empty">这个版本没有待办。</p>}

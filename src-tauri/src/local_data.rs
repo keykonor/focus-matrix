@@ -82,6 +82,7 @@ fn validate(value: &Value) -> Result<(), String> {
     if object.contains_key("tasks") {
         let tasks = value["tasks"].as_array().ok_or("待办数据无法读取，停止写入")?;
         for task in tasks {
+            if let Some(children) = task.get("subtasks") { crate::history::validate_subtasks(children)?; }
             if !task["id"].is_string() || !task["text"].is_string() || !task["completed"].is_boolean() ||
                 !task["createdAt"].is_string() || !task["updatedAt"].is_string() ||
                 !["important-not-urgent", "important-urgent", "not-important-not-urgent", "urgent-not-important"].contains(&task["quadrant"].as_str().unwrap_or("")) {
@@ -98,6 +99,11 @@ fn validate(value: &Value) -> Result<(), String> {
         }
     }
     if object.contains_key("completedTasks") && !value["completedTasks"].is_array() { return Err("已完成仓库无法读取，停止写入".into()); }
+    if let Some(records) = value.get("completedTasks").and_then(Value::as_array) {
+        for record in records {
+            if let Some(children) = record["task"].get("subtasks") { crate::history::validate_subtasks(children)?; }
+        }
+    }
     Ok(())
 }
 fn commit(root: &Path, patch: Value) -> Result<(), String> {
@@ -211,6 +217,16 @@ mod tests {
     fn fixture() -> std::path::PathBuf {
         let directory = std::env::temp_dir().join(format!("focus-atomic-{}-{}", std::process::id(), SERIAL.fetch_add(1, Ordering::Relaxed)));
         fs::create_dir_all(&directory).unwrap(); directory
+    }
+    #[test]
+    fn malformed_subtasks_stop_writes_and_leave_original_bytes() {
+        let root = fixture();
+        let original = br#"{"tasks":[],"settings":{"keep":true}}"#;
+        fs::write(root.join(STORE), original).unwrap();
+        let task = json!({"id":"parent","text":"parent","completed":false,"createdAt":"old","updatedAt":"old","quadrant":"important-urgent","subtasks":[{"id":"child","text":"step","completed":"broken","createdAt":"old","updatedAt":"old"}]});
+        assert!(commit(&root, json!({"tasks":[task]})).is_err());
+        assert_eq!(fs::read(root.join(STORE)).unwrap(), original);
+        fs::remove_dir_all(root).unwrap();
     }
     #[test]
     fn task_archive_patch_preserves_all_other_state_and_previous_bytes() {

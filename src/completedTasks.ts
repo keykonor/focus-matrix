@@ -33,6 +33,7 @@ export function parseCompletedTasks(value: unknown): CompletedTaskRecord[] {
 
 const fingerprint = (task: Task) => JSON.stringify([
   task.id, task.text, task.completed, task.createdAt, task.updatedAt, task.quadrant,
+  task.subtasks ?? [],
 ]);
 
 // Plan in memory; the caller saves this entire result before removing UI tasks.

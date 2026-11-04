@@ -21,6 +21,7 @@ import { useToday } from './hooks/useToday';
 import { changeTask, newTask } from './taskModel';
 import { changeDiary } from './diary';
 import { hasPendingImages } from './taskImages';
+import { cloudTasks, retainLocalSubtasks } from './subtasks';
 import { openDataStore, saveData, type AppData, type LocalDataStore } from './storage';
 import { defaultSettings, quadrants, type AppSettings, type DailyMemos, type MemoPeriod, type QuadrantType, type Task } from './types';
 
@@ -106,7 +107,7 @@ export default function App() {
   const hasPendingTaskEdits = useCallback(() => hasPendingImages() || !same(dataRef.current.tasks, storeRef.current?.baseline?.tasks ?? []), []);
   const readSavedContent = useCallback(() => {
     const saved = storeRef.current?.baseline ?? dataRef.current;
-    return { tasks: saved.tasks, dailyMemos: saved.dailyMemos };
+    return { tasks: cloudTasks(saved.tasks), dailyMemos: saved.dailyMemos };
   }, []);
   const applyCloud = useCallback(async (delivery:CloudDelivery) => {
     if (!canEdit()) throw Error('当前内容正在加载或保存，同步稍后重试');
@@ -115,7 +116,9 @@ export default function App() {
     if(!canEdit()) throw Error('当前内容正在加载或保存，同步稍后重试');
     if (hasPendingTaskEdits()) throw Error('任务文字尚未提交，请按回车或点击保存后同步');
     const current=dataRef.current;
-    const merged=mergeContent(delivery.sentContent,{tasks:current.tasks,dailyMemos:current.dailyMemos},delivery.snapshot.content);
+    const merged=mergeContent(delivery.sentContent,{tasks:current.tasks,dailyMemos:current.dailyMemos},
+      {...delivery.snapshot.content,tasks:cloudTasks(delivery.snapshot.content.tasks)});
+    merged.content.tasks=retainLocalSubtasks(current.tasks,merged.content.tasks);
     const next={...current,...merged.content,syncMarks:delivery.snapshot.marks};
     if(same(next,current))return;
     restoringRef.current=true;refreshInteractionLock();
@@ -254,10 +257,10 @@ export default function App() {
     setFocusId(task.id);
     if (afterId) setTaskSaveRequest(request => request + 1);
   };
-  const updateTask = (id: string, patch: Partial<Pick<Task, 'text' | 'completed'>>) => {
+  const updateTask = (id: string, patch: Partial<Pick<Task, 'text' | 'completed' | 'subtasks'>>, commit = false) => {
     if(!canEdit())return;
     setTasks(current => current.map(task => task.id === id ? changeTask(task, patch) : task));
-    if (patch.completed !== undefined) setTaskSaveRequest(request => request + 1);
+    if (patch.completed !== undefined || commit) setTaskSaveRequest(request => request + 1);
   };
   const deleteTask = (id: string) => {
     if(!canEdit())return;

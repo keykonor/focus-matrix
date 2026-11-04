@@ -4,6 +4,7 @@ import { flushSync } from 'react-dom';
 import { findTaskLinks } from '../taskLinks';
 import { beginImageSave, endImageSave, imageIds, visibleTaskText, withTaskImages } from '../taskImages';
 import { TaskImage } from './TaskImage';
+import { SubtasksEditor } from './SubtasksEditor';
 import type { AppSettings, QuadrantType, Task } from '../types';
 import {EditAnnotation} from './EditAnnotation';
 import type {EditMark} from '../../cloud-site/lib/syncModel';
@@ -13,7 +14,7 @@ interface Props {
   mark?: EditMark;
   focus: boolean;
   fontSize: AppSettings['fontSize'];
-  onChange: (id: string, patch: Partial<Pick<Task, 'text' | 'completed'>>) => void;
+  onChange: (id: string, patch: Partial<Pick<Task, 'text' | 'completed' | 'subtasks'>>, commit?: boolean) => void;
   onDelete: (id: string) => void;
   onEnter: (quadrant: QuadrantType, afterId: string) => void;
 }
@@ -86,15 +87,21 @@ export function TaskItem({ task, mark, focus, fontSize, onChange, onDelete, onEn
       onPaste={event => { const files = Array.from(event.clipboardData.files); if (files.length) { event.preventDefault(); void addImages(files); } }}
       onKeyDown={(event) => {
         if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); if (!imagePending.current) onEnter(task.quadrant, task.id); }
-        if (event.key === 'Delete' && !task.text && !imagePending.current) { event.preventDefault(); onDelete(task.id); }
+        if (event.key === 'Delete' && !task.text && !task.subtasks?.length && !imagePending.current) { event.preventDefault(); onDelete(task.id); }
       }}
-      onBlur={() => { if (!taskRef.current.text.trim() && !imagePending.current) onDelete(task.id); }} />
+      onBlur={event => {
+        if (event.relatedTarget instanceof Node && event.currentTarget.parentElement?.contains(event.relatedTarget)) return;
+        if (!taskRef.current.text.trim() && !taskRef.current.subtasks?.length && !imagePending.current) onDelete(task.id);
+      }} />
       {addingImage && <span role="status" className="task-image-message">正在保存图片…</span>}
       {imageError && <span role="alert" className="task-image-message">{imageError}</span>}
       {ids.map((id, index) => <TaskImage key={`${id}-${index}`} id={id} onRemove={() => updateText(visibleTaskText(taskRef.current.text), imageIds(taskRef.current.text).filter((_, i) => i !== index))} />)}
       {findTaskLinks(text).map(({url}) => <button key={url} type="button" className="task-link" title={url}
         onClick={() => { setLinkError(false); void invoke('open_task_link', {url}).catch(() => setLinkError(true)); }}>打开链接：{url}</button>)}
       {linkError && <span className="task-link-error" role="alert">无法打开链接，请检查默认浏览器设置。</span>}
+      <SubtasksEditor taskId={task.id} items={task.subtasks ?? []} onChange={(subtasks, commit) => {
+        taskRef.current = { ...taskRef.current, subtasks }; onChange(task.id, { subtasks }, commit);
+      }} />
       <EditAnnotation mark={mark}/></div>
     <button type="button" className="delete-button" disabled={addingImage} onClick={() => onDelete(task.id)} aria-label="删除任务" title="删除任务">×</button>
   </div>;

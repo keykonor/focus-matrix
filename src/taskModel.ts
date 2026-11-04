@@ -1,11 +1,12 @@
 import { defaultSettings, quadrants, type AppSettings, type QuadrantType, type Task } from './types';
+import { validSubtasks } from './subtasks';
 
 export function newTask(quadrant: QuadrantType): Task {
   const now = new Date().toISOString();
   return { id: crypto.randomUUID(), text: '', completed: false, createdAt: now, updatedAt: now, quadrant };
 }
 
-export function changeTask(task: Task, patch: Partial<Pick<Task, 'text' | 'completed' | 'quadrant'>>): Task {
+export function changeTask(task: Task, patch: Partial<Pick<Task, 'text' | 'completed' | 'quadrant' | 'subtasks'>>): Task {
   return { ...task, ...patch, updatedAt: new Date().toISOString() };
 }
 
@@ -15,7 +16,8 @@ export function parseTasks(value: unknown): Task[] {
     typeof item === 'object' && item !== null &&
     typeof item.id === 'string' && typeof item.text === 'string' &&
     typeof item.completed === 'boolean' && typeof item.createdAt === 'string' &&
-    typeof item.updatedAt === 'string' && quadrants.includes(item.quadrant),
+    typeof item.updatedAt === 'string' && quadrants.includes(item.quadrant) &&
+    (item.subtasks === undefined || validSubtasks(item.subtasks)),
   );
 }
 
