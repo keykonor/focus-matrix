@@ -20,4 +20,10 @@ Task 新增可选 subtasks 数组。旧任务无此字段时不补写，损坏�
 - 用当前 PowerShell 执行 `scripts/test-update-preservation.ps1`，完整快照、未知字段、窗口、损坏备份拦截和封印日志恢复通过。旧 `powershell.exe` 缺少 Get-FileHash，不能把最初的 npm test:update 调用记为通过。
 - 最终评审提出的空父任务键盘操作问题已补回归修复，无其他阻塞项。
 
-隔离截图位于 `outputs/subtasks-20261104/`，全部为合成内容。正式构建与本机安装的最终结果另在完成后追加；本记录不代表 GitHub Release 已更新。
+隔离截图位于 `outputs/subtasks-20261104/`，全部为合成内容。
+
+正式 `npm run tauri build -- --no-bundle` 完成，内嵌前端包含最终键盘修复。安装首次检测到旧路径实例退出但无 nonce 确认，在覆盖程序前停止，未强杀。用户明确确认最近内容已保存、允许继续后，再运行 `install-local.ps1`，以当时当前完整磁盘状态为基线；没有使用更早快照覆盖后来内容。
+
+安装备份为 `backups/20261104-102720-515-718d79`。新版已在开启编辑前确认完整快照，安装后再次只读核对数据字节完全相同；7 项任务、12 条归档、11 个备忘日期、空 dailyDiaries 及原有 373 个历史/图片文件保留。正式 exe 与构建产物 SHA-256 一致：`6CA212D9EE841DF4E6AAE617A5D636F6A5EC4D3DC024C6B3CE23DB44F885FDB6`。Store SHA-256：`1CB5ECAA03232961D8D2637FC2C589C8F49841CF47D5282D8819EA43ED031EA4`。只运行 canonical 路径一个实例，未启用正式程序 CDP，未在真实任务上添加测试子任务。
+
+源码实现验收版本 `versions/20261104-022618-166Z-40837be3`，提交 `6c092f2d893bfafbd3de4b0cfbe6c67daaf81902`。安装记录与项目记忆随后另存源码版本。本轮没有发布或覆盖 GitHub Release，也没有更新远端 Actions、云服务或 APK。
