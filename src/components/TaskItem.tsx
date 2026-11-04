@@ -5,6 +5,7 @@ import { findTaskLinks } from '../taskLinks';
 import { beginImageSave, endImageSave, imageIds, visibleTaskText, withTaskImages } from '../taskImages';
 import { TaskImage } from './TaskImage';
 import { SubtasksEditor } from './SubtasksEditor';
+import { newSubtask } from '../subtasks';
 import type { AppSettings, QuadrantType, Task } from '../types';
 import {EditAnnotation} from './EditAnnotation';
 import type {EditMark} from '../../cloud-site/lib/syncModel';
@@ -26,6 +27,7 @@ export function TaskItem({ task, mark, focus, fontSize, onChange, onDelete, onEn
   const [linkError, setLinkError] = useState(false);
   const [imageError, setImageError] = useState('');
   const [addingImage, setAddingImage] = useState(false);
+  const [subtaskFocus, setSubtaskFocus] = useState<string | null>(null);
   const text = visibleTaskText(task.text);
   const ids = imageIds(task.text);
   const updateText = (value: string, images = imageIds(taskRef.current.text)) => {
@@ -90,7 +92,7 @@ export function TaskItem({ task, mark, focus, fontSize, onChange, onDelete, onEn
         if (event.key === 'Delete' && !task.text && !task.subtasks?.length && !imagePending.current) { event.preventDefault(); onDelete(task.id); }
       }}
       onBlur={event => {
-        if (event.relatedTarget instanceof Node && event.currentTarget.parentElement?.contains(event.relatedTarget)) return;
+        if (event.relatedTarget instanceof Node && event.currentTarget.closest('.task-item')?.contains(event.relatedTarget)) return;
         if (!taskRef.current.text.trim() && !taskRef.current.subtasks?.length && !imagePending.current) onDelete(task.id);
       }} />
       {addingImage && <span role="status" className="task-image-message">正在保存图片…</span>}
@@ -99,10 +101,14 @@ export function TaskItem({ task, mark, focus, fontSize, onChange, onDelete, onEn
       {findTaskLinks(text).map(({url}) => <button key={url} type="button" className="task-link" title={url}
         onClick={() => { setLinkError(false); void invoke('open_task_link', {url}).catch(() => setLinkError(true)); }}>打开链接：{url}</button>)}
       {linkError && <span className="task-link-error" role="alert">无法打开链接，请检查默认浏览器设置。</span>}
-      <SubtasksEditor taskId={task.id} items={task.subtasks ?? []} onChange={(subtasks, commit) => {
+      <SubtasksEditor focusId={subtaskFocus} items={task.subtasks ?? []} onChange={(subtasks, commit) => {
         taskRef.current = { ...taskRef.current, subtasks }; onChange(task.id, { subtasks }, commit);
       }} />
       <EditAnnotation mark={mark}/></div>
+    <button type="button" className="subtask-add-icon" aria-label="添加子任务" title="添加子任务" onMouseDown={event => event.preventDefault()} onClick={() => {
+      const item = newSubtask(); const subtasks = [...(taskRef.current.subtasks ?? []), item];
+      taskRef.current = { ...taskRef.current, subtasks }; onChange(task.id, { subtasks }); setSubtaskFocus(item.id);
+    }}>＋</button>
     <button type="button" className="delete-button" disabled={addingImage} onClick={() => onDelete(task.id)} aria-label="删除任务" title="删除任务">×</button>
   </div>;
 }

@@ -99,7 +99,8 @@ try {
   await mkdir(join('outputs', 'subtasks-20261104'), { recursive: true });
   await send('Page.navigate', { url: origin + '/calendar-preview.html' });
   await wait("document.querySelectorAll('.subtask-row').length===2 && document.querySelector('.calendar-button')?.disabled===false");
-  await click(root + ' .subtask-add');
+  assert.equal(await evaluate("document.querySelectorAll('.subtask-row input[type=checkbox], .subtasks-toolbar').length"), 0);
+  await click(root + ' .subtask-add-icon');
   await wait("document.querySelectorAll('.subtask-row').length===3");
   const added = root + ' .subtask-row:last-of-type textarea';
   const before = await data();
@@ -111,10 +112,6 @@ try {
   await evaluate('document.querySelector(' + JSON.stringify(added) + ').dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",isComposing:true,bubbles:true}))');
   await delay(600); assert.deepEqual(await data(), before, 'Shift+Enter or IME saved child draft');
   const submitted = await evaluate('document.querySelector(' + JSON.stringify(added) + ').value');
-  await click(root + ' .subtasks-toggle');
-  await delay(500); assert.deepEqual(await data(), before, 'Collapse saved child draft');
-  await click(root + ' .subtasks-toggle');
-  assert.equal(await evaluate('document.querySelector(' + JSON.stringify(added) + ').value'), submitted);
   await evaluate('document.querySelector(' + JSON.stringify(added) + ').focus()');
   await press('Enter');
   await wait("JSON.parse(sessionStorage.getItem('calendar-check-data')).tasks[0].subtasks?.length===4");
@@ -122,10 +119,10 @@ try {
   assert.equal((await data()).tasks.length, 3, 'Child Enter added a parent');
   await click(root + ' .subtask-row:last-of-type .subtask-delete');
   await wait("JSON.parse(sessionStorage.getItem('calendar-check-data')).tasks[0].subtasks.length===3");
-  await click(root + ' .subtask-row:first-child input');
-  await wait("JSON.parse(sessionStorage.getItem('calendar-check-data')).tasks[0].subtasks[0].completed");
+  assert.equal((await data()).tasks[0].subtasks[0].completed, false);
+  assert.equal((await data()).tasks[0].subtasks[1].completed, true);
   assert.equal((await data()).tasks[0].completed, false);
-  console.log('child CRUD, Enter submission, newline/IME, fold draft and independent completion: OK');
+  console.log('child CRUD, Enter submission, newline/IME and preserved completion data: OK');
   for (const [width,height] of [[720,480],[520,360],[1200,760]]) {
     await send('Emulation.setDeviceMetricsOverride', { width,height,deviceScaleFactor:1.5,mobile:false });
     await delay(150);
@@ -166,7 +163,7 @@ try {
   await send('Input.dispatchKeyEvent', { type:'keyUp',key:'Tab',code:'Tab',windowsVirtualKeyCode:9 });
   await delay(100);
   assert.equal(await evaluate('Boolean(document.querySelector(' + JSON.stringify(keyboardRoot) + '))'),true,'Tab to Add deleted an empty parent');
-  assert.equal(await evaluate('document.activeElement.classList.contains("subtask-add")'),true);
+  assert.equal(await evaluate('document.activeElement.classList.contains("subtask-add-icon")'),true);
   await press('Enter');
   await wait("document.querySelector('.task-item[data-task-id=\"keyboard\"] .subtask-row')");
   await edit(keyboardRoot + ' .subtask-text', '键盘添加的步骤');
@@ -174,7 +171,7 @@ try {
   await wait("JSON.parse(sessionStorage.getItem('calendar-check-data')).tasks.some(t=>t.id==='keyboard'&&t.subtasks?.[0].text==='键盘添加的步骤')");
   const emptyRoot = '.task-item[data-task-id="empty"]';
   await evaluate('document.querySelector(' + JSON.stringify(emptyRoot + ' > .task-content > textarea') + ').focus()');
-  const rect = await evaluate('(() => {const r=document.querySelector(' + JSON.stringify(emptyRoot + ' .subtask-add') + ').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()');
+  const rect = await evaluate('(() => {const r=document.querySelector(' + JSON.stringify(emptyRoot + ' .subtask-add-icon') + ').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()');
   await send('Input.dispatchMouseEvent', { type: 'mousePressed', button:'left',clickCount:1,...rect });
   await send('Input.dispatchMouseEvent', { type: 'mouseReleased', button:'left',clickCount:1,...rect });
   await wait("document.querySelector('.task-item[data-task-id=\"empty\"] .subtask-row')");
