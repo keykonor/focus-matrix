@@ -1,5 +1,9 @@
 # Focus Matrix 项目记忆
 
+- 2026-11-04 修复文档复制 OS error 17 和真实文件拖入无反应：documents 保存复用 local_data 的封印日志/校验恢复兼容写入；Windows 使用参考 Wry（保留 MIT 许可）的 OLE 接收器，支持 CF_HDROP 文件及 Unicode 文字/链接，一次性令牌导入，保留原描述；空白象限可多文件拖入并创建任务。TaskItem 用 useLayoutEffect 注册接收，避免新建任务第一批附件早于监听就绪；普通文字/链接仍等待 Enter，任务跨象限改用指针手柄，附件忙时提示重试。
+- 本轮 54 项 Vitest、23 项 Rust（含 OS17 确定性注入、一次性授权和源文件保留）、任务/子任务/历史/午夜及更新恢复/源码检查通过。临时位置不支持新建 EFS 目录，不能称为新增真实 EFS 验收。独立 compiled identifier/product/mutex/startup 原生测试版在 150% DPI 下通过真实 Explorer 文件拖入、CF_HDROP 复制粘贴、多文件空白象限接收及选中 URL 原生 OLE 拖放；未写真实任务或打开用户文档。不得仅凭 APPDATA 重定向隔离 Tauri。详见 docs/file-transfer-fix-20261104.md。
+- 正式 tauri build 与 install-local 更新完成，本次保存退出 nonce 协议及启动恢复确认正常，无需使用旧快照。备份 backups/20261104-235145-712-6512a1；完整 Store 安装前后字节一致，6 项任务、12 条归档、11 个备忘日期、空日记及原 400 个历史/图片/文档文件、窗口状态和加密凭据保留。正式 exe SHA-256 01F1EB1954FF30BDC36F609BE7FF84AEA6A6F81231A332973A941799FE87E411；仅一个 canonical 实例，隔离测试实例退出。未发布远端或声称文件云同步。
+
 - 2026-11-04 文档入口精简：用户要求主任务简洁，不显示“添加文档/文档链接”常驻行；保留已添加文件的打开/移除。文件或 HTTP/HTTPS 链接可直接拖入/粘贴到任务文字，新增 Windows CF_HDROP 原生文件剪贴板读取与本机副本保存，文件最多 64 份、每份 20 MB，普通文字/链接维持原输入提交规则。54 项 Vitest、21 项 Rust、隔离拖放与粘贴 IPC/附件/子任务/历史/归档及原完整交互回归通过；未在真实用户任务中测试文件复制粘贴，不能以模拟事件声称真实 Explorer 操作已验收。
 - 本轮正式 build 与 install-local 更新完成；首次退出无 nonce 确认在覆盖前停止，用户本次确认已保存并允许继续后，以当前完整磁盘状态安装。备份 backups/20261104-224613-307-7b0ba5；完整 Store 字节一致，6 项任务、12 条归档、11 个备忘日期及原有 396 项历史/图片/文档文件保留，仅一个 canonical 实例。exe SHA-256 5643286ABD263FBBCAB904D019AD85A555DA5FE8AE2D3E74956E75C491BAD3E7；未发布远端。
 
