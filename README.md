@@ -14,6 +14,8 @@ Windows 桌面四象限任务便笺，配合每日备忘录、待办历史与已
 
 [使用指南](docs/usage.md) · [更新日志](CHANGELOG.md) · [开发文档](docs/development.md) · [源码与测试](https://github.com/keykonor/focus-matrix/actions/workflows/checks.yml) · [参与贡献](CONTRIBUTING.md)
 
+[Code signing policy](docs/code-signing.md)
+
 Windows 10 / 11 · x64 · 本地功能离线可用
 
 </div>
