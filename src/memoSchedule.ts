@@ -1,9 +1,11 @@
 import { isDateKey } from './calendarModel';
+import { memoPeriods } from './types';
 
 export interface MemoSchedule {
   mode: 'periods' | 'hourly';
   hours: number[];
   notes: Record<string, string>;
+  attachments?: Record<string, string>;
 }
 
 export type DailyMemoSchedules = Record<string, MemoSchedule>;
@@ -20,14 +22,19 @@ export function parseMemoSchedules(value: unknown): DailyMemoSchedules {
   const entries: [string, MemoSchedule][] = [];
   for (const [date, schedule] of Object.entries(value)) {
     if (!isDateKey(date) || !schedule || typeof schedule !== 'object') throw Error(error);
-    const { mode, hours, notes } = schedule as Partial<MemoSchedule>;
+    const { mode, hours, notes, attachments } = schedule as Partial<MemoSchedule>;
     if ((mode !== 'periods' && mode !== 'hourly') || !Array.isArray(hours) || !hours.length ||
         hours.some((hour, index) => !memoHours.includes(hour) || (index > 0 && hour <= hours[index - 1])) ||
         !notes || typeof notes !== 'object' || Array.isArray(notes) ||
         Object.entries(notes).some(([hour, text]) => !memoHours.some(value => String(value) === hour) || typeof text !== 'string')) {
       throw Error(error);
     }
-    entries.push([date, { mode, hours, notes }]);
+    if (attachments !== undefined && (!attachments || typeof attachments !== 'object' || Array.isArray(attachments) ||
+        Object.entries(attachments).some(([slot, refs]) =>
+          ![...memoPeriods, ...memoHours.map(hour => `hour-${hour}`)].includes(slot) || typeof refs !== 'string'))) {
+      throw Error(error);
+    }
+    entries.push([date, { mode, hours, notes, ...(attachments === undefined ? {} : { attachments }) }]);
   }
   return Object.fromEntries(entries);
 }

@@ -544,7 +544,7 @@ try {
     await reloadInteraction([], { calendarOpen: true });
     await wait("document.querySelector('.calendar-button[aria-label=\"切到四宫格\"]') && document.querySelector('.memo-schedule-button')");
     const date = await evaluate("document.querySelector('.daily-memos').dataset.selectedDate");
-    const openEditor = () => evaluate("document.querySelector('.memo-schedule-button').click()");
+    const openEditor = () => evaluate("(() => { const button = document.querySelector('.memo-schedule-button'); button.scrollIntoView({block:'nearest'}); button.click(); })()");
     const chooseMode = async mode => {
       const label = mode === 'hourly' ? '24 小时' : '早上／下午／晚上';
       await evaluate(`[...document.querySelectorAll('.memo-mode-picker button')].find(button => button.textContent === ${JSON.stringify(label)}).click()`);
@@ -554,10 +554,28 @@ try {
     await openEditor(); await chooseMode('hourly'); await apply();
     await wait("document.querySelectorAll('.memo-hour-9').length === 1");
     assert.equal(await evaluate("document.querySelectorAll('.memo-section[class*=\"memo-hour-\"]').length"), 24);
+    await evaluate(`(() => {
+      const field = document.querySelector('.memo-hour-9 textarea');
+      field.scrollIntoView({ block: 'center' });
+      const rect = field.getBoundingClientRect();
+      window.interactionCheck.emit('focus-matrix://files-dropped', { id: 'memo-hour-file', x: rect.left + 10, y: rect.top + 10 });
+    })()`);
+    await wait("document.querySelector('.memo-hour-9 .document-open')?.textContent === '原生拖入.txt'");
     await evaluate(`(() => { const field=document.querySelector('[data-period="hour-9"]'); Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(field,'合成小时备忘'); field.dispatchEvent(new Event('input',{bubbles:true})); })()`);
     await wait(`JSON.parse(sessionStorage.getItem('calendar-check-data')).dailyMemoSchedules?.[${JSON.stringify(date)}]?.notes?.['9'] === '合成小时备忘'`);
     await openEditor(); await chooseMode('periods'); await apply();
     await wait("document.querySelector('[data-period=\"morning\"]') && !document.querySelector('[data-period=\"hour-9\"]')");
+    await evaluate(`(() => {
+      const field = document.querySelector('.memo-morning textarea');
+      const transfer = new DataTransfer();
+      const png = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/aK0AAAAASUVORK5CYII='), c => c.charCodeAt(0));
+      transfer.items.add(new File([png], 'memo.png', { type: 'image/png' }));
+      field.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: transfer }));
+      const link = new DataTransfer();
+      link.setData('text/uri-list', 'https://example.com/memo');
+      field.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: link }));
+    })()`);
+    await wait("document.querySelector('.memo-morning .task-image-preview') && document.querySelector('.memo-morning .task-link')");
     await openEditor(); await chooseMode('hourly');
     await wait("document.querySelectorAll('.memo-hour-options button').length === 24");
     await send('Emulation.setDeviceMetricsOverride', { width: 520, height: 360, deviceScaleFactor: 1, mobile: false });
@@ -582,6 +600,10 @@ try {
     await wait("document.querySelector('[data-period=\"hour-9\"]')?.value === '合成小时备忘'");
     await send('Page.reload'); await delay(1000);
     await wait("document.querySelector('[data-period=\"hour-9\"]')?.value === '合成小时备忘' && !document.querySelector('[data-period=\"hour-8\"]')");
+    await wait("document.querySelector('.memo-morning .task-image-preview') && document.querySelector('.memo-hour-9 .document-open')");
+    await evaluate("document.querySelector('.memo-hour-9 .document-open').click(); document.querySelector('.memo-morning .task-link').click(); document.querySelector('.memo-morning .task-image-preview').click()");
+    await wait("window.interactionCheck.documentOpens.includes('d'.repeat(64)+'.txt') && window.interactionCheck.linkOpens.includes('https://example.com/memo') && document.querySelector('.image-overlay')");
+    await evaluate("document.querySelector('.image-overlay-close').click()");
     await evaluate("document.querySelector('.calendar-button').click()");
     await wait("document.querySelector('.matrix')");
   });

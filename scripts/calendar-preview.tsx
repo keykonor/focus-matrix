@@ -36,6 +36,7 @@ const interactionCheck = {
   quitCalls: 0,
   syncContents: [] as unknown[],
   documentOpens: [] as string[],
+  linkOpens: [] as string[],
 };
 Object.assign(window, { interactionCheck });
 mockWindows('main');
@@ -44,6 +45,7 @@ mockIPC(async (command, payload) => {
   if (command === 'paste_task_documents') return [{ id:'c'.repeat(64)+'.pdf',name:'复制的文档.pdf' }];
   if (command === 'take_dropped_files') return [{id:'d'.repeat(64)+'.txt',name:'原生拖入.txt',kind:'document'}];
   if (command === 'open_task_document') { interactionCheck.documentOpens.push(String(payload?.id)); return; }
+  if (command === 'open_task_link') { interactionCheck.linkOpens.push(String(payload?.url)); return; }
   if (command === 'sync_cloud') interactionCheck.syncContents.push(structuredClone(payload?.content));
   if (paused.has(command)) await new Promise<void>((resolve, reject) => {
     waiting.set(command, [...(waiting.get(command) ?? []), { resolve, reject }]);

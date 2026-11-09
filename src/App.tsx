@@ -8,7 +8,7 @@ import { Quadrant } from './components/Quadrant';
 import { SettingsModal } from './components/SettingsModal';
 import { TitleBar } from './components/TitleBar';
 import { CalendarPanel } from './components/CalendarPanel';
-import type { DailyMemoSchedules, MemoSchedule } from './memoSchedule';
+import { defaultMemoSchedule, type DailyMemoSchedules, type MemoSchedule } from './memoSchedule';
 import { HistoryModal } from './components/HistoryModal';
 import { CompletedTasksModal } from './components/CompletedTasksModal';
 import { rolloverCompletedTasks, type CompletedTaskRecord } from './completedTasks';
@@ -115,10 +115,10 @@ export default function App() {
       if(!canEdit())return;
       const {id,text,x,y,name}=event.payload;
       const hit=document.elementFromPoint(x,y);
-      const row=hit?.closest<HTMLElement>('.task-item');
+      const row=hit?.closest<HTMLElement>('.task-item, .memo-section');
       if(row){row.dispatchEvent(new CustomEvent('focus-matrix:file-drop',{detail:{id,text}}));return;}
       const quadrant=hit?.closest<HTMLElement>('.quadrant')?.dataset.quadrant as QuadrantType|undefined;
-      if(!quadrant||!quadrants.includes(quadrant)){setSaveNotice('请将文件拖到任务或四象限空白处');return;}
+      if(!quadrant||!quadrants.includes(quadrant)){setSaveNotice('请将文件拖到任务、备忘录时段或四象限空白处');return;}
       const task={...newTask(quadrant),text:text||name||'文件'};
       setTasks(current=>[...current,task]);setFocusId(task.id);
       if(!id)return;
@@ -359,8 +359,8 @@ export default function App() {
     <TitleBar onSettings={() => setSettingsOpen(true)} taskCount={tasks.filter((task) => !task.completed).length}
       today={today} calendarOpen={settings.calendarOpen} onCalendar={toggleCalendar} onCompleted={() => setCompletedOpen(true)} onSave={() => void saveFromMain()} saving={savingVersion} onHistory={() => void openHistory()} onCloud={() => {setCloudSection('share');setCloudOpen(true);}} onPhone={() => {setCloudSection('phone');setCloudOpen(true);}} cloudError={!!cloud.status.error} disabled={interactionLocked} />
     {settings.calendarOpen ? <CalendarPanel today={today} memos={dailyMemos} diaries={dailyDiaries}
-      schedules={dailyMemoSchedules} onScheduleChange={(date: string, schedule: MemoSchedule) => {
-        if (canEdit()) setDailyMemoSchedules(current => ({ ...current, [date]: schedule }));
+      schedules={dailyMemoSchedules} onScheduleChange={(date: string, update: (current: MemoSchedule) => MemoSchedule) => {
+        if (canEdit()) setDailyMemoSchedules(current => ({ ...current, [date]: update(current?.[date] ?? defaultMemoSchedule) }));
       }} onDiaryChange={updateDiary} marks={syncMarks} onChange={updateMemo} /> : <main className="matrix" aria-label="艾森豪威尔任务矩阵">
       {quadrants.map((quadrant) => <Quadrant key={quadrant} quadrant={quadrant} marks={syncMarks} tasks={tasks.filter((task) => task.quadrant === quadrant && (settings.showCompleted || !task.completed))} focusId={focusId} fontSize={settings.fontSize} onAdd={addTask} onChange={updateTask} onDelete={deleteTask} onMove={moveTask} />)}
     </main>}

@@ -1,8 +1,9 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { dateFromKey, hasMemo, monthDays, shiftMonth } from '../calendarModel';
 import { memoPeriods, type DailyMemos, type MemoPeriod } from '../types';
 import { defaultMemoSchedule, hourLabel, memoHours, type DailyMemoSchedules, type MemoSchedule } from '../memoSchedule';
 import {EditAnnotation} from './EditAnnotation';
+import { MemoField } from './MemoField';
 import type {EditMark} from '../../cloud-site/lib/syncModel';
 
 const periodNames: Record<MemoPeriod, string> = { morning: '早上', afternoon: '下午', evening: '晚上' };
@@ -17,26 +18,7 @@ interface Props {
   marks?:Record<string,EditMark>;
   onChange: (date: string, period: MemoPeriod, text: string) => void;
   onDiaryChange: (date: string, text: string) => void;
-  onScheduleChange: (date: string, schedule: MemoSchedule) => void;
-}
-
-function MemoField({ period, label, text, onChange }: { period: string; label: string; text: string; onChange: (text: string) => void }) {
-  const field = useRef<HTMLTextAreaElement>(null);
-  useLayoutEffect(() => {
-    const input = field.current;
-    if (!input) return;
-    const resize = () => { input.style.height = 'auto'; input.style.height = `${input.scrollHeight}px`; };
-    resize();
-    const observer = new ResizeObserver(resize);
-    observer.observe(input);
-    return () => observer.disconnect();
-  }, [text]);
-  return <label className={`memo-section memo-${period}`}>
-    <span className="memo-label">{label}</span>
-    <textarea ref={field} className="memo-text" data-period={period} rows={2} value={text}
-      aria-label={`${label}备忘录`} placeholder={`写下${label}的安排…`}
-      onChange={(event) => onChange(event.target.value)} />
-  </label>;
+  onScheduleChange: (date: string, update: (current: MemoSchedule) => MemoSchedule) => void;
 }
 
 export function CalendarPanel({ today, memos, diaries, schedules, onDiaryChange, marks, onChange, onScheduleChange }: Props) {
@@ -59,7 +41,16 @@ export function CalendarPanel({ today, memos, diaries, schedules, onDiaryChange,
   const schedule = schedules?.[selectedDate] ?? defaultMemoSchedule;
   const draft = editingSchedule?.date === selectedDate ? editingSchedule : undefined;
   const hasRecords = (date: string) => hasMemo(memos[date]) || Boolean(diaries[date]) ||
-    Object.values(schedules?.[date]?.notes ?? {}).some(text => text.trim());
+    Object.values(schedules?.[date]?.notes ?? {}).some(text => text.trim()) ||
+    Object.values(schedules?.[date]?.attachments ?? {}).some(Boolean);
+  const hasPeriodRecords = hasMemo(memos[selectedDate]) || memoPeriods.some(period => schedule.attachments?.[period]);
+  const updateAttachments = (period: string, update: (current: string) => string) => onScheduleChange(selectedDate, current => {
+    const attachments = { ...current.attachments };
+    const next = update(attachments[period] ?? '');
+    if (next) attachments[period] = next;
+    else delete attachments[period];
+    return { ...current, attachments };
+  });
   return <main className="calendar-panel" aria-label="日期与每日备忘录">
     <aside className="calendar-sidebar" aria-label="月历">
       <div className="calendar-month-header">
@@ -121,17 +112,21 @@ export function CalendarPanel({ today, memos, diaries, schedules, onDiaryChange,
         <div className="memo-schedule-actions">
           <button type="button" onClick={() => setEditingSchedule(undefined)}>取消</button>
           <button type="button" className="memo-schedule-apply" disabled={draft.mode === 'hourly' && !draft.hours.length} onClick={() => {
-            onScheduleChange(selectedDate, { ...schedule, mode: draft.mode, hours: draft.hours.length ? draft.hours : schedule.hours });
+            onScheduleChange(selectedDate, current => ({ ...current, mode: draft.mode, hours: draft.hours.length ? draft.hours : current.hours }));
             setEditingSchedule(undefined);
           }}>应用</button>
         </div>
       </section>}
       {schedule.mode === 'hourly' && schedule.hours.map(hour => <MemoField key={`${selectedDate}-hour-${hour}`}
         period={`hour-${hour}`} label={hourLabel(hour)} text={schedule.notes[hour] ?? ''}
-        onChange={text => onScheduleChange(selectedDate, { ...schedule, notes: { ...schedule.notes, [hour]: text } })} />)}
-      {schedule.mode === 'hourly' && hasMemo(memos[selectedDate]) && <p className="memo-save-hint">早上／下午／晚上备忘录</p>}
-      {(schedule.mode === 'periods' || hasMemo(memos[selectedDate])) && memoPeriods.map(period => <div key={`${selectedDate}-${period}`}>
+        attachments={schedule.attachments?.[`hour-${hour}`] ?? ''}
+        onAttachmentsChange={update => updateAttachments(`hour-${hour}`, update)}
+        onChange={text => onScheduleChange(selectedDate, current => ({ ...current, notes: { ...current.notes, [hour]: text } }))} />)}
+      {schedule.mode === 'hourly' && hasPeriodRecords && <p className="memo-save-hint">早上／下午／晚上备忘录</p>}
+      {(schedule.mode === 'periods' || hasPeriodRecords) && memoPeriods.map(period => <div key={`${selectedDate}-${period}`}>
         <MemoField period={period} label={periodNames[period]} text={memos[selectedDate]?.[period] ?? ''}
+          attachments={schedule.attachments?.[period] ?? ''}
+          onAttachmentsChange={update => updateAttachments(period, update)}
           onChange={text => onChange(selectedDate, period, text)} />
         <EditAnnotation mark={marks?.[`memo:${selectedDate}:${period}`]} />
       </div>)}

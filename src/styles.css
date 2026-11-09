@@ -242,6 +242,9 @@ button { cursor: pointer; }
 .memo-save-hint { display: flex; align-items: center; gap: 12px; margin: 8px 0 16px; color: #648574; font-size: 11px; }
 .memo-section { display: block; margin: 0 0 17px; }
 .memo-label { display: block; color: #547b66; font-size: 13px; font-weight: 600; margin-bottom: 5px; }
+.memo-field-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.memo-add-file { padding: 3px 6px; border: 1px solid #bdd3c3; border-radius: 4px; background: rgba(255,255,255,.22); color: #416a50; font-size: 11px; }
+.memo-add-file:hover { background: rgba(255,255,255,.55); }
 .memo-afternoon .memo-label { color: #477b7c; }
 .memo-evening .memo-label { color: #52798f; }
 .memo-text { display: block; width: 100%; min-height: 65px; padding: 8px 2px; border: 0; border-bottom: 1px solid rgba(94,143,122,.18); border-radius: 0; background: transparent; color: #365d50; font-size: var(--task-font-size, 16px); line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; resize: none; overflow: hidden; outline: 0; }

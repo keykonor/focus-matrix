@@ -59,6 +59,8 @@ pub(crate) struct MemoSchedule {
     mode: String,
     hours: Vec<u8>,
     notes: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    attachments: Option<BTreeMap<String, String>>,
 }
 
 pub(crate) type DailyMemoSchedules = BTreeMap<String, MemoSchedule>;
@@ -69,6 +71,10 @@ pub(crate) fn validate_memo_schedules(schedules: &DailyMemoSchedules) -> Result<
             || schedule.hours.is_empty() || schedule.hours.iter().any(|&hour| hour >= 24)
             || schedule.hours.windows(2).any(|pair| pair[0] >= pair[1])
             || schedule.notes.keys().any(|key| !key.parse::<u8>().is_ok_and(|hour| hour < 24 && hour.to_string() == *key))
+            || schedule.attachments.as_ref().is_some_and(|files| files.keys().any(|slot|
+                !matches!(slot.as_str(), "morning" | "afternoon" | "evening")
+                && !slot.strip_prefix("hour-").is_some_and(|key|
+                    key.parse::<u8>().is_ok_and(|hour| hour < 24 && hour.to_string() == key))))
         {
             return Err("备忘录时间段无法读取，已停止保存".into());
         }
