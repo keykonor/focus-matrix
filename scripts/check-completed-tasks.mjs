@@ -545,7 +545,11 @@ try {
     await wait("document.querySelector('.calendar-button[aria-label=\"切到四宫格\"]') && document.querySelector('.memo-schedule-button')");
     const date = await evaluate("document.querySelector('.daily-memos').dataset.selectedDate");
     const openEditor = () => evaluate("document.querySelector('.memo-schedule-button').click()");
-    const chooseMode = mode => evaluate(`(() => { const select=document.querySelector('.memo-schedule-editor select'); select.value=${JSON.stringify(mode)}; select.dispatchEvent(new Event('change',{bubbles:true})); })()`);
+    const chooseMode = async mode => {
+      const label = mode === 'hourly' ? '24 小时' : '早上／下午／晚上';
+      await evaluate(`[...document.querySelectorAll('.memo-mode-picker button')].find(button => button.textContent === ${JSON.stringify(label)}).click()`);
+      await wait(`document.querySelector('.memo-mode-picker button[aria-pressed="true"]')?.textContent === ${JSON.stringify(label)}`);
+    };
     const apply = () => evaluate("document.querySelector('.memo-schedule-apply').click()");
     await openEditor(); await chooseMode('hourly'); await apply();
     await wait("document.querySelectorAll('.memo-hour-9').length === 1");
@@ -556,6 +560,17 @@ try {
     await wait("document.querySelector('[data-period=\"morning\"]') && !document.querySelector('[data-period=\"hour-9\"]')");
     await openEditor(); await chooseMode('hourly');
     await wait("document.querySelectorAll('.memo-hour-options button').length === 24");
+    await send('Emulation.setDeviceMetricsOverride', { width: 520, height: 360, deviceScaleFactor: 1, mobile: false });
+    assert.equal(await evaluate(`(() => {
+      const tools = document.querySelector('.memo-hour-tools').getBoundingClientRect();
+      const hours = document.querySelector('.memo-hour-options').getBoundingClientRect();
+      return tools.bottom <= hours.top && Math.abs(tools.right - hours.right) < 1 && hours.right <= innerWidth;
+    })()`), true, 'Hour actions should fit above the grid, aligned right');
+    await send('Emulation.setDeviceMetricsOverride', { width: 1200, height: 760, deviceScaleFactor: 1, mobile: false });
+    await evaluate("document.querySelector('.memo-hour-tools button:last-child').click()");
+    await wait("document.querySelectorAll('.memo-hour-options button[aria-pressed=true]').length === 0 && document.querySelector('.memo-schedule-apply').disabled");
+    await evaluate("document.querySelector('.memo-hour-tools button:first-child').click()");
+    await wait("document.querySelectorAll('.memo-hour-options button[aria-pressed=true]').length === 24 && !document.querySelector('.memo-schedule-apply').disabled");
     await click('.memo-hour-options button:nth-child(9)');
     await wait("document.querySelector('.memo-hour-options button:nth-child(9)')?.getAttribute('aria-pressed') === 'false'");
     await apply();

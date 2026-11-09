@@ -96,24 +96,27 @@ export function CalendarPanel({ today, memos, diaries, schedules, onDiaryChange,
       </div>
       <div className="memo-save-hint"><span>自动保存</span><button type="button" className="today-button" onClick={() => selectDate(today)}>回到今天</button></div>
       {draft && <section className="memo-schedule-editor" id="memo-schedule-editor" aria-label="当日时间段设置">
-        <label>排列方式 <select value={draft.mode} onChange={event => setEditingSchedule({
-          ...draft, mode: event.target.value === 'hourly' ? 'hourly' : 'periods',
-        })}>
-          <option value="periods">早上／下午／晚上</option>
-          <option value="hourly">24 小时</option>
-        </select></label>
-        {draft.mode === 'hourly' && <fieldset>
-          <legend>选择显示的小时</legend>
+        <div className="memo-mode-picker" role="group" aria-label="排列方式">
+          <span aria-hidden="true">排列方式</span>
+          <button type="button" aria-pressed={draft.mode === 'hourly'}
+            onClick={() => setEditingSchedule({ ...draft, mode: 'hourly' })}>24 小时</button>
+          <button type="button" aria-pressed={draft.mode === 'periods'}
+            onClick={() => setEditingSchedule({ ...draft, mode: 'periods' })}>早上／下午／晚上</button>
+        </div>
+        {draft.mode === 'hourly' && <fieldset aria-label="选择显示的小时">
+          <div className="memo-hour-heading">
+            <span>选择显示的小时</span>
+            <div className="memo-hour-tools">
+              <button type="button" onClick={() => setEditingSchedule({ ...draft, hours: memoHours })}>全选</button>
+              <button type="button" onClick={() => setEditingSchedule({ ...draft, hours: [] })}>清除选择</button>
+            </div>
+          </div>
           <div className="memo-hour-options">{memoHours.map(hour => <button key={hour} type="button"
             aria-pressed={draft.hours.includes(hour)} onClick={() => {
               const hours = draft.hours.includes(hour) ? draft.hours.filter(value => value !== hour) :
                 [...draft.hours, hour].sort((a, b) => a - b);
               setEditingSchedule({ ...draft, hours });
             }}>{hourLabel(hour)}</button>)}</div>
-          <div className="memo-schedule-actions">
-            <button type="button" onClick={() => setEditingSchedule({ ...draft, hours: memoHours })}>全选</button>
-            <button type="button" onClick={() => setEditingSchedule({ ...draft, hours: [] })}>清空选择</button>
-          </div>
         </fieldset>}
         <div className="memo-schedule-actions">
           <button type="button" onClick={() => setEditingSchedule(undefined)}>取消</button>

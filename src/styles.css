@@ -216,14 +216,15 @@ button { cursor: pointer; }
 .memo-dot { position: absolute; left: calc(50% - 1.5px); bottom: 2px; width: 3px; height: 3px; border-radius: 50%; background: currentColor; }
 .today-button { padding: 5px 0; border: 0; background: transparent; color: #52795f; font-size: 12px; }
 .today-button:hover { text-decoration: underline; }
-.memo-schedule-button, .memo-schedule-actions button { padding: 6px 10px; border: 1px solid #a8c3b0; border-radius: 4px; color: #416a50; background: rgba(255,255,255,.28); font-size: 12px; }
-.memo-schedule-button:hover, .memo-schedule-actions button:hover { background: rgba(255,255,255,.55); }
+.memo-schedule-button, .memo-schedule-editor button { padding: 6px 10px; border: 1px solid #a8c3b0; border-radius: 4px; color: #416a50; background: rgba(255,255,255,.28); font-size: 12px; }
+.memo-schedule-button:hover, .memo-schedule-editor button:hover { background: rgba(255,255,255,.55); }
 .memo-schedule-editor { padding: 12px; margin-bottom: 16px; border: 1px solid #bdd3c3; border-radius: 4px; background: rgba(255,255,255,.24); color: #416a50; font-size: 12px; }
-.memo-schedule-editor select { margin-left: 6px; max-width: 100%; }
+.memo-mode-picker, .memo-hour-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.memo-hour-tools { display: flex; gap: 8px; margin-left: auto; }
 .memo-schedule-editor fieldset { min-width: 0; margin: 10px 0; padding: 0; border: 0; }
 .memo-hour-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(68px, 1fr)); gap: 4px; margin-top: 6px; }
 .memo-hour-options button { padding: 5px; border: 1px solid #bdd3c3; border-radius: 4px; background: transparent; color: #416a50; font-size: 12px; }
-.memo-hour-options button[aria-pressed='true'] { border-color: #7ca88a; background: #e4f1e7; color: #315e40; }
+.memo-mode-picker button[aria-pressed='true'], .memo-hour-options button[aria-pressed='true'] { border-color: #7ca88a; background: #e4f1e7; color: #315e40; }
 .memo-schedule-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
 .memo-schedule-actions button:disabled { opacity: .55; }
 .diary-section { display:flex; flex-direction:column; gap:7px; margin-top:20px; }
