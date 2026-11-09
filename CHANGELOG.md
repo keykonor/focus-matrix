@@ -1,7 +1,15 @@
 # Changelog
 
-## Unreleased
+## 0.3.0
 
+- Add one-level subtasks, task documents and images, date-memo attachments
+  (files, images and links) and per-day diaries.
+- Click a URL inside a task or memo to open it directly; remove the separate
+  "open link" button.
+- Add 24-hour / morning-afternoon-evening memo scheduling.
+- Add native Windows file drop and copy-paste import, plus local image and
+  link previews in history and the completed repository.
+- Archive completed tasks automatically at local midnight.
 - Stop saving task text on every typing pause. Enter saves the current content
   and creates the next task; Shift+Enter inserts a newline and IME confirmation
   does not submit.
