@@ -20,8 +20,9 @@ function fixture(t) {
     encoding: 'utf8', windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
   }).trim();
   git('init'); git('config', 'user.name', 'Source Policy Test'); git('config', 'user.email', 'test@localhost');
+  const version = JSON.parse(readFileSync(join(project, 'package.json'), 'utf8')).version;
   for (const path of ['package.json', 'package-lock.json', 'src-tauri/tauri.conf.json',
-    'src-tauri/Cargo.toml', 'src-tauri/Cargo.lock', 'LICENSE', 'docs/releases/v0.2.0.md']) {
+    'src-tauri/Cargo.toml', 'src-tauri/Cargo.lock', 'LICENSE', `docs/releases/v${version}.md`]) {
     mkdirSync(dirname(join(root, path)), { recursive: true });
     writeFileSync(join(root, path), readFileSync(join(project, path)));
   }
