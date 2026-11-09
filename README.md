@@ -22,14 +22,13 @@ Windows 10 / 11 · x64 · 本地功能离线可用
 
 ![Focus Matrix 四象限界面：按重要与紧急分类](docs/assets/task-matrix.png)
 
-<details>
-<summary><strong>看看每日备忘录与已完成仓库</strong></summary>
+### 按日期记录安排
 
-| 按日期记录安排 | 回看已完成的事 |
-| --- | --- |
-| ![日期备忘录：月历与早上、下午、晚上安排](docs/assets/daily-memos.png) | ![已完成仓库：按归档日期分组，可搜索和筛选](docs/assets/completed-archive.png) |
+![日期备忘录：月历与早上、下午、晚上安排](docs/assets/daily-memos.png)
 
-</details>
+### 回看已完成的事
+
+![已完成仓库：按归档日期分组，可搜索和筛选](docs/assets/completed-archive.png)
 
 ## 让任务有轻重，让做过的事有记录
 
