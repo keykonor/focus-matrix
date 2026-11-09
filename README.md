@@ -22,7 +22,14 @@ Windows 10 / 11 · x64 · 本地功能离线可用
 
 ![Focus Matrix 四象限界面：按重要与紧急分类](docs/assets/task-matrix.png)
 
-*截图来自当前源码的隔离浏览器预览，全部为示例内容，不含真实用户数据。*
+<details>
+<summary><strong>看看每日备忘录与已完成仓库</strong></summary>
+
+| 按日期记录安排 | 回看已完成的事 |
+| --- | --- |
+| ![日期备忘录：月历与早上、下午、晚上安排](docs/assets/daily-memos.png) | ![已完成仓库：按归档日期分组，可搜索和筛选](docs/assets/completed-archive.png) |
+
+</details>
 
 ## 让任务有轻重，让做过的事有记录
 
@@ -34,19 +41,6 @@ Windows 10 / 11 · x64 · 本地功能离线可用
 | **待办历史** | 自动保留内容版本，也可手动保存；恢复待办前先保留当前版本。 |
 | **桌面便笺** | 托盘常驻、置顶或桌面底层，调整透明度、字号和开机启动。 |
 | **本地保存** | 任务、备忘录、仓库和设置离线使用；保存失败时保留原文件和恢复依据。 |
-
-<details>
-<summary><strong>看看每日备忘录与已完成仓库</strong></summary>
-
-### 按日期记录安排
-
-![日期备忘录：月历与早上、下午、晚上安排](docs/assets/daily-memos.png)
-
-### 回看已完成的事
-
-![已完成仓库：按归档日期分组，可搜索和筛选](docs/assets/completed-archive.png)
-
-</details>
 
 ## 三步开始
 
@@ -76,7 +70,7 @@ Windows 10 / 11 · x64 · 本地功能离线可用
 
 ## 开发与贡献
 
-桌面使用 **Tauri 2 + React 19 + TypeScript**。前端检查需要 Node.js 24；完整原生开发还需要 Windows、Rust MSVC、C++ Build Tools、Windows SDK 与 WebView2。
+桌面使用 **Tauri 2 + React 19 + TypeScript**。前端检查需要 Node.js 20 或更高（支持 20 / 22 / 24 LTS，CI 使用 24）；完整原生开发还需要 Windows、Rust MSVC、C++ Build Tools、Windows SDK 与 WebView2。
 
 ```powershell
 npm ci

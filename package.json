@@ -2,6 +2,9 @@
   "name": "focus-matrix",
   "private": true,
   "version": "0.3.0",
+  "engines": {
+    "node": ">=20"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite",
