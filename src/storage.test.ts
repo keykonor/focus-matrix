@@ -8,6 +8,13 @@ vi.mock('./contentHistory', () => ({ archiveContent: archive }));
 vi.mock('@tauri-apps/api/core', () => ({ invoke }));
 describe('content history guards the current data', () => {
   beforeEach(() => { archive.mockReset(); invoke.mockReset(); });
+  it('saves a day’s hourly notes independently of the original memo periods', async () => {
+    const original: AppData = { tasks: [], dailyMemos: {}, settings: defaultSettings };
+    const dailyMemoSchedules: AppData['dailyMemoSchedules'] = { '2026-11-09': { mode: 'hourly', hours: [9, 14], notes: { '9': '上午的安排' } } };
+    await saveData({ baseline: original }, { ...original, dailyMemoSchedules });
+    expect(invoke).toHaveBeenCalledWith('commit_local_data', { patch: { dailyMemoSchedules } });
+    expect(archive).toHaveBeenCalledWith(expect.objectContaining({ dailyMemoSchedules }));
+  });
   it('does not replace current content if version writing fails', async () => {
     const store: LocalDataStore = { baseline: null };
     archive.mockRejectedValue(new Error('Disk full'));

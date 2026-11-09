@@ -1,7 +1,8 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { DailyMemos, Task } from './types';
+import type { DailyMemoSchedules } from './memoSchedule';
 
-export interface HistoryContent { tasks: Task[]; dailyMemos: DailyMemos; dailyDiaries?: Record<string,string>; }
+export interface HistoryContent { tasks: Task[]; dailyMemos: DailyMemos; dailyDiaries?: Record<string,string>; dailyMemoSchedules?: DailyMemoSchedules; }
 export type HistoryReason = 'automatic' | 'manual' | 'before-restore' | 'initial' | 'update-backup';
 export interface VersionSummary {
   id: string;

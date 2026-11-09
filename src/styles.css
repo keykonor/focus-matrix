@@ -214,11 +214,20 @@ button { cursor: pointer; }
 .calendar-day.is-today { border-color: #8cb59b; }
 .calendar-day.is-selected { background: #608a70; color: #fff; }
 .memo-dot { position: absolute; left: calc(50% - 1.5px); bottom: 2px; width: 3px; height: 3px; border-radius: 50%; background: currentColor; }
-.today-button { margin: 16px 0 0; padding: 5px 0; border: 0; background: transparent; color: #52795f; font-size: 12px; }
+.today-button { padding: 5px 0; border: 0; background: transparent; color: #52795f; font-size: 12px; }
 .today-button:hover { text-decoration: underline; }
-.calendar-actions { display:flex; align-items:center; gap:16px; flex-wrap:wrap; justify-content:flex-end; }
-.calendar-actions .today-button { margin:0; }
+.memo-schedule-button, .memo-schedule-actions button { padding: 6px 10px; border: 1px solid #a8c3b0; border-radius: 4px; color: #416a50; background: rgba(255,255,255,.28); font-size: 12px; }
+.memo-schedule-button:hover, .memo-schedule-actions button:hover { background: rgba(255,255,255,.55); }
+.memo-schedule-editor { padding: 12px; margin-bottom: 16px; border: 1px solid #bdd3c3; border-radius: 4px; background: rgba(255,255,255,.24); color: #416a50; font-size: 12px; }
+.memo-schedule-editor select { margin-left: 6px; max-width: 100%; }
+.memo-schedule-editor fieldset { min-width: 0; margin: 10px 0; padding: 0; border: 0; }
+.memo-hour-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(68px, 1fr)); gap: 4px; margin-top: 6px; }
+.memo-hour-options button { padding: 5px; border: 1px solid #bdd3c3; border-radius: 4px; background: transparent; color: #416a50; font-size: 12px; }
+.memo-hour-options button[aria-pressed='true'] { border-color: #7ca88a; background: #e4f1e7; color: #315e40; }
+.memo-schedule-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+.memo-schedule-actions button:disabled { opacity: .55; }
 .diary-section { display:flex; flex-direction:column; gap:7px; margin-top:20px; }
+.diary-heading { display: flex; align-items: baseline; gap: 8px; }
 .diary-label { color:#547b66; font-size:13px; font-weight:600; }
 .diary-date { color:#87a293; font-size:11px; }
 .diary-text { box-sizing:border-box; width:100%; min-height:110px; padding:8px 6px; border:1px solid rgba(94,143,122,.20); border-radius:3px; background:rgba(255,255,255,.18); color:#365d50; font:inherit; font-size:var(--task-font-size,16px); line-height:1.6; resize:vertical; }
@@ -229,9 +238,7 @@ button { cursor: pointer; }
 .memo-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .memo-eyebrow { margin: 0 0 5px; color: #83a194; font-size: 11px; }
 .memo-heading h2 { margin: 0; color: #376a52; font-size: clamp(19px, 2.5vw, 27px); font-weight: 650; line-height: 1.4; }
-.calendar-close { flex: none; padding: 5px 0; border: 0; background: transparent; color: #6a8e7c; font-size: 11px; }
-.calendar-close:hover { color: #376a52; text-decoration: underline; }
-.memo-save-hint { margin: 8px 0 20px; color: #8ba79b; font-size: 11px; }
+.memo-save-hint { display: flex; align-items: center; gap: 12px; margin: 8px 0 16px; color: #648574; font-size: 11px; }
 .memo-section { display: block; margin: 0 0 17px; }
 .memo-label { display: block; color: #547b66; font-size: 13px; font-weight: 600; margin-bottom: 5px; }
 .memo-afternoon .memo-label { color: #477b7c; }
@@ -368,7 +375,6 @@ button { cursor: pointer; }
   .calendar-sidebar { max-width: 350px; margin: 0 auto; padding-bottom: 15px; }
   .calendar-hint { display: none; }
   .calendar-month-header { margin-bottom: 12px; }
-  .today-button { margin-top: 9px; }
   .daily-memos { border-left: 0; border-top: 1px solid rgba(91,135,108,.10); padding: 19px 25px 24px; }
 }
 @media (max-height: 550px) {

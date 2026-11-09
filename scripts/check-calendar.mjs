@@ -87,7 +87,7 @@ try {
   const diaryText = '今天的日记\n第二行';
   await evaluate(`(() => { const field=document.querySelector('.diary-text'); Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(field,${JSON.stringify(diaryText)}); field.dispatchEvent(new Event('input',{bubbles:true})); })()`);
   await waitFor(`JSON.parse(sessionStorage.getItem('calendar-check-data')).dailyDiaries?.[${JSON.stringify(today)}] === ${JSON.stringify(diaryText)}`, 'diary autosave');
-  assert.equal(await evaluate("Boolean(document.querySelector('.memo-heading .today-button'))"), true);
+  assert.equal(await evaluate("Boolean(document.querySelector('.memo-save-hint .today-button'))"), true);
   let data = await saved();
   assert.equal(data.dailyMemos[today].morning, '早上安排\n完整显示第二行');
   assert.equal(data.dailyMemos[today].afternoon, '下午安排');
@@ -176,7 +176,7 @@ try {
   const capture = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
   await writeFile(join(process.cwd(), 'calendar-ui-check.png'), Buffer.from(capture.data, 'base64'));
 
-  await evaluate("document.querySelector('.calendar-close').click()");
+  await evaluate("document.querySelector('.calendar-button').click()");
   await waitFor("document.querySelectorAll('.quadrant').length === 4", 'return to matrix');
   await delay(600);
   assert.equal((await saved()).settings.calendarOpen, false);
@@ -237,7 +237,7 @@ try {
   await evaluate("document.querySelector('.calendar-button').click()");
   await waitFor("document.querySelector('.memo-text')", 'memo edit');
   await typeMemo('morning', '修改后的早上备忘录');
-  await evaluate("document.querySelector('.calendar-close').click()");
+  await evaluate("document.querySelector('.calendar-button').click()");
   await delay(600);
   const changed = await saved();
   await openHistory();

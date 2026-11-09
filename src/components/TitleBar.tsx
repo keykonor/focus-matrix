@@ -17,9 +17,12 @@ interface Props {
 export function TitleBar({ onSettings, taskCount, today, calendarOpen, onCalendar, onHistory, onCompleted, onSave, saving, onCloud, onPhone, cloudError, disabled }: Props) {
   return <header className="title-bar">
     <div className="title-start"><button className="calendar-button" type="button" onClick={onCalendar} disabled={disabled}
-      aria-label="日期备忘录" aria-pressed={calendarOpen} title={calendarOpen ? '关闭日期界面' : '打开日期界面'}>
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M7 2v6M17 2v6M3 11h18" /></svg>
-      <span>{Number(today.slice(5, 7))}月{Number(today.slice(8))}日</span>
+      aria-label={calendarOpen ? '切到四宫格' : '日期备忘录'} aria-pressed={calendarOpen} title={calendarOpen ? '切到四宫格' : '打开日期界面'}>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+        {calendarOpen ? <><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M12 3v18M3 12h18" /></> :
+          <><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M7 2v6M17 2v6M3 11h18" /></>}
+      </svg>
+      <span>{calendarOpen ? '切到四宫格' : `${Number(today.slice(5, 7))}月${Number(today.slice(8))}日`}</span>
     </button><div className="brand">Focus Matrix</div></div>
     <div className="title-actions"><span className="task-count">{taskCount} 项待办</span><button className="history-button save-version-button" type="button" disabled={disabled || saving} onClick={onSave} aria-label="保存待办版本" title="保存待办，可在历史中恢复">
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="M5 3h12l4 4v14H3V3h2Z"/><path d="M7 3v6h10V3M7 21v-8h10v8"/></svg><span>{saving ? '保存中…' : '保存'}</span>

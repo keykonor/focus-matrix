@@ -51,6 +51,29 @@ pub struct Content {
     tasks: Vec<SavedTask>,
     #[serde(default)] daily_memos: BTreeMap<String, SavedMemo>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")] daily_diaries: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")] daily_memo_schedules: DailyMemoSchedules,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
+pub(crate) struct MemoSchedule {
+    mode: String,
+    hours: Vec<u8>,
+    notes: BTreeMap<String, String>,
+}
+
+pub(crate) type DailyMemoSchedules = BTreeMap<String, MemoSchedule>;
+
+pub(crate) fn validate_memo_schedules(schedules: &DailyMemoSchedules) -> Result<(), String> {
+    for (date, schedule) in schedules {
+        if !valid_date(date) || !matches!(schedule.mode.as_str(), "periods" | "hourly")
+            || schedule.hours.is_empty() || schedule.hours.iter().any(|&hour| hour >= 24)
+            || schedule.hours.windows(2).any(|pair| pair[0] >= pair[1])
+            || schedule.notes.keys().any(|key| !key.parse::<u8>().is_ok_and(|hour| hour < 24 && hour.to_string() == *key))
+        {
+            return Err("备忘录时间段无法读取，已停止保存".into());
+        }
+    }
+    Ok(())
 }
 impl Content {
     fn validate(&self) -> Result<(), String> {
@@ -63,7 +86,7 @@ impl Content {
             if !valid_date(date) { return Err("Invalid memo date in history".into()); }
         }
         for date in self.daily_diaries.keys() { if !valid_date(date) { return Err("Invalid diary date in history".into()); } }
-        Ok(())
+        validate_memo_schedules(&self.daily_memo_schedules)
     }
 }
 pub(crate) fn valid_date(date: &str) -> bool {
@@ -209,7 +232,7 @@ mod tests {
         fs::create_dir_all(&root).unwrap(); root
     }
     fn content(text: &str) -> Content {
-        Content { tasks: vec![SavedTask { id: "one".into(), text: text.into(), completed: false, created_at: "original".into(), updated_at: "original".into(), quadrant: "important-urgent".into(), subtasks: None }], daily_memos: BTreeMap::from([("2026-10-03".into(), SavedMemo { evening: "晚间记录".into(), ..Default::default() })]), daily_diaries: BTreeMap::new() }
+        Content { tasks: vec![SavedTask { id: "one".into(), text: text.into(), completed: false, created_at: "original".into(), updated_at: "original".into(), quadrant: "important-urgent".into(), subtasks: None }], daily_memos: BTreeMap::from([("2026-10-03".into(), SavedMemo { evening: "晚间记录".into(), ..Default::default() })]), daily_diaries: BTreeMap::new(), daily_memo_schedules: BTreeMap::new() }
     }
     #[test]
     fn previous_current_manual_and_restore_versions_are_durable() {

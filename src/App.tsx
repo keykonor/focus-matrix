@@ -8,6 +8,7 @@ import { Quadrant } from './components/Quadrant';
 import { SettingsModal } from './components/SettingsModal';
 import { TitleBar } from './components/TitleBar';
 import { CalendarPanel } from './components/CalendarPanel';
+import type { DailyMemoSchedules, MemoSchedule } from './memoSchedule';
 import { HistoryModal } from './components/HistoryModal';
 import { CompletedTasksModal } from './components/CompletedTasksModal';
 import { rolloverCompletedTasks, type CompletedTaskRecord } from './completedTasks';
@@ -37,6 +38,7 @@ export default function App() {
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);
   const [dailyMemos, setDailyMemos] = useState<DailyMemos>({});
   const [dailyDiaries, setDailyDiaries] = useState<Record<string,string>>({});
+  const [dailyMemoSchedules, setDailyMemoSchedules] = useState<DailyMemoSchedules>();
   const [completedTasks, setCompletedTasks] = useState<CompletedTaskRecord[]>([]);
   const [taskDay, setTaskDay] = useState('');
   const today = useToday();
@@ -57,7 +59,7 @@ export default function App() {
   const storeRef = useRef<LocalDataStore | null>(null);
   const updatingRef = useRef(false);
   const rolloverGuard = useRef<string | null>(null);
-  const dataRef = useRef<AppData>({ tasks, settings, dailyMemos, dailyDiaries, syncMarks, completedTasks, taskDay });
+  const dataRef = useRef<AppData>({ tasks, settings, dailyMemos, dailyDiaries, dailyMemoSchedules, syncMarks, completedTasks, taskDay });
   const saveQueue = useRef<Promise<void>>(Promise.resolve());
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const closingRef = useRef(false);
@@ -76,7 +78,7 @@ export default function App() {
   const protectInteraction = (event: SyntheticEvent) => {
     if (!canEdit()) { event.preventDefault(); event.stopPropagation(); }
   };
-  dataRef.current = { tasks, settings, dailyMemos, dailyDiaries, syncMarks, completedTasks, taskDay };
+  dataRef.current = { tasks, settings, dailyMemos, dailyDiaries, dailyMemoSchedules, syncMarks, completedTasks, taskDay };
 
   const flushSave = useCallback(async (forUpdate = false) => {
     if (restoringRef.current || (updatingRef.current && !forUpdate)) return false;
@@ -103,7 +105,10 @@ export default function App() {
     finally { if (rollingOver) { restoringRef.current = false; refreshInteractionLock(); } }
   }, [refreshInteractionLock]);
 
-  const readContent = useCallback(() => ({tasks:dataRef.current.tasks,dailyMemos:dataRef.current.dailyMemos,dailyDiaries:dataRef.current.dailyDiaries}),[]);
+  const readContent = useCallback(() => {
+    const { tasks, dailyMemos, dailyDiaries, dailyMemoSchedules } = dataRef.current;
+    return { tasks, dailyMemos, dailyDiaries, dailyMemoSchedules };
+  }, []);
   useEffect(()=>{
     let disposed=false;let unlisten:UnlistenFn|undefined;
     void listen<{id?:string;text?:string;x:number;y:number;name?:string}>('focus-matrix://files-dropped',event=>{
@@ -161,6 +166,7 @@ export default function App() {
       setSettings(data.settings);
       setDailyMemos(data.dailyMemos);
       setDailyDiaries(data.dailyDiaries ?? {});
+      setDailyMemoSchedules(data.dailyMemoSchedules);
       setSyncMarks(data.syncMarks??{});
       setCompletedTasks(data.completedTasks ?? []);
       setTaskDay(data.taskDay ?? '');
@@ -172,11 +178,12 @@ export default function App() {
   useEffect(() => {
     if (!ready || restoringRef.current) return;
     const baseline = storeRef.current?.baseline;
-    if (baseline && same(settings, baseline.settings) && same(dailyMemos, baseline.dailyMemos) && same(dailyDiaries, baseline.dailyDiaries ?? {})) return;
+    if (baseline && same(settings, baseline.settings) && same(dailyMemos, baseline.dailyMemos) &&
+        same(dailyDiaries, baseline.dailyDiaries ?? {}) && same(dailyMemoSchedules, baseline.dailyMemoSchedules)) return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => { void flushSave(); }, 400);
     return () => { if (saveTimer.current) clearTimeout(saveTimer.current); };
-  }, [settings, dailyMemos, dailyDiaries, ready, flushSave]);
+  }, [settings, dailyMemos, dailyDiaries, dailyMemoSchedules, ready, flushSave]);
 
   useEffect(() => {
     if (taskSaveRequest > 0) void flushSave();
@@ -304,7 +311,7 @@ export default function App() {
     savingVersionRef.current = true; setSavingVersion(true);
     try {
       if (!(await flushSave())) throw new Error('Current content could not be saved');
-      await archiveContent({ tasks: dataRef.current.tasks, dailyMemos: dataRef.current.dailyMemos, dailyDiaries: dataRef.current.dailyDiaries }, 'manual');
+      await archiveContent(readContent(), 'manual');
     } finally { savingVersionRef.current = false; setSavingVersion(false); }
   };
   const saveFromMain = async () => {
@@ -329,7 +336,8 @@ export default function App() {
     const current = { ...dataRef.current };
     const restored = { ...current, ...restoreTaskContent(current, version.content) };
     const operation = saveQueue.current.catch(() => undefined).then(async () => {
-      await archiveContent({ tasks: current.tasks, dailyMemos: current.dailyMemos, dailyDiaries: current.dailyDiaries }, 'before-restore');
+      const { tasks, dailyMemos, dailyDiaries, dailyMemoSchedules } = current;
+      await archiveContent({ tasks, dailyMemos, dailyDiaries, dailyMemoSchedules }, 'before-restore');
       await saveData(store, restored);
     });
     saveQueue.current = operation;
@@ -350,7 +358,10 @@ export default function App() {
       onClickCapture={protectInteraction} onKeyDownCapture={protectInteraction} onDragStartCapture={protectInteraction} onDropCapture={protectInteraction}>
     <TitleBar onSettings={() => setSettingsOpen(true)} taskCount={tasks.filter((task) => !task.completed).length}
       today={today} calendarOpen={settings.calendarOpen} onCalendar={toggleCalendar} onCompleted={() => setCompletedOpen(true)} onSave={() => void saveFromMain()} saving={savingVersion} onHistory={() => void openHistory()} onCloud={() => {setCloudSection('share');setCloudOpen(true);}} onPhone={() => {setCloudSection('phone');setCloudOpen(true);}} cloudError={!!cloud.status.error} disabled={interactionLocked} />
-    {settings.calendarOpen ? <CalendarPanel today={today} memos={dailyMemos} diaries={dailyDiaries} onDiaryChange={updateDiary} marks={syncMarks} onChange={updateMemo} onClose={toggleCalendar} /> : <main className="matrix" aria-label="艾森豪威尔任务矩阵">
+    {settings.calendarOpen ? <CalendarPanel today={today} memos={dailyMemos} diaries={dailyDiaries}
+      schedules={dailyMemoSchedules} onScheduleChange={(date: string, schedule: MemoSchedule) => {
+        if (canEdit()) setDailyMemoSchedules(current => ({ ...current, [date]: schedule }));
+      }} onDiaryChange={updateDiary} marks={syncMarks} onChange={updateMemo} /> : <main className="matrix" aria-label="艾森豪威尔任务矩阵">
       {quadrants.map((quadrant) => <Quadrant key={quadrant} quadrant={quadrant} marks={syncMarks} tasks={tasks.filter((task) => task.quadrant === quadrant && (settings.showCompleted || !task.completed))} focusId={focusId} fontSize={settings.fontSize} onAdd={addTask} onChange={updateTask} onDelete={deleteTask} onMove={moveTask} />)}
     </main>}
     {settingsOpen && <SettingsModal settings={settings} onChange={onSettingsChange} onClose={() => setSettingsOpen(false)} />}

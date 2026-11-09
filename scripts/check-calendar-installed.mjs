@@ -60,7 +60,7 @@ try {
   console.log('installed calendar, three periods and system date: ok');
   // No task or memo text is edited by this native acceptance check.
   if (!backup.settings.calendarOpen) {
-    await evaluate("document.querySelector('.calendar-close').click()");
+    await evaluate("document.querySelector('.calendar-button').click()");
     await waitFor("document.querySelectorAll('.quadrant').length === 4");
   }
   await delay(700);

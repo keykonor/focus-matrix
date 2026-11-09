@@ -522,7 +522,7 @@ try {
   await regression('daily diary autosaves by selected date and survives reload', async () => {
     await reloadInteraction(); await delay(600);
     await evaluate("document.querySelector('.calendar-button').click()");
-    await wait("document.querySelector('.diary-text') && document.querySelector('.memo-heading .today-button')");
+    await wait("document.querySelector('.diary-text') && document.querySelector('.memo-save-hint .today-button')");
     const date = await evaluate("document.querySelector('.daily-memos').dataset.selectedDate");
     const diary = '合成日记\n第二行';
     await evaluate(`(() => { const field=document.querySelector('.diary-text'); Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(field,${JSON.stringify(diary)}); field.dispatchEvent(new Event('input',{bubbles:true})); })()`);
@@ -539,6 +539,36 @@ try {
       await delay(150);
       assert.equal(await evaluate("document.documentElement.scrollWidth <= innerWidth + 1 && document.querySelector('.calendar-panel').scrollWidth <= document.querySelector('.calendar-panel').clientWidth + 1 && document.querySelector('.diary-text').scrollWidth <= document.querySelector('.diary-text').clientWidth + 1"), true, 'Diary layout overflows');
     }
+  });
+  await regression('memo hours persist per day and switching layouts keeps notes', async () => {
+    await reloadInteraction([], { calendarOpen: true });
+    await wait("document.querySelector('.calendar-button[aria-label=\"切到四宫格\"]') && document.querySelector('.memo-schedule-button')");
+    const date = await evaluate("document.querySelector('.daily-memos').dataset.selectedDate");
+    const openEditor = () => evaluate("document.querySelector('.memo-schedule-button').click()");
+    const chooseMode = mode => evaluate(`(() => { const select=document.querySelector('.memo-schedule-editor select'); select.value=${JSON.stringify(mode)}; select.dispatchEvent(new Event('change',{bubbles:true})); })()`);
+    const apply = () => evaluate("document.querySelector('.memo-schedule-apply').click()");
+    await openEditor(); await chooseMode('hourly'); await apply();
+    await wait("document.querySelectorAll('.memo-hour-9').length === 1");
+    assert.equal(await evaluate("document.querySelectorAll('.memo-section[class*=\"memo-hour-\"]').length"), 24);
+    await evaluate(`(() => { const field=document.querySelector('[data-period="hour-9"]'); Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(field,'合成小时备忘'); field.dispatchEvent(new Event('input',{bubbles:true})); })()`);
+    await wait(`JSON.parse(sessionStorage.getItem('calendar-check-data')).dailyMemoSchedules?.[${JSON.stringify(date)}]?.notes?.['9'] === '合成小时备忘'`);
+    await openEditor(); await chooseMode('periods'); await apply();
+    await wait("document.querySelector('[data-period=\"morning\"]') && !document.querySelector('[data-period=\"hour-9\"]')");
+    await openEditor(); await chooseMode('hourly');
+    await wait("document.querySelectorAll('.memo-hour-options button').length === 24");
+    await click('.memo-hour-options button:nth-child(9)');
+    await wait("document.querySelector('.memo-hour-options button:nth-child(9)')?.getAttribute('aria-pressed') === 'false'");
+    await apply();
+    await wait("document.querySelector('[data-period=\"hour-9\"]')?.value === '合成小时备忘' && !document.querySelector('[data-period=\"hour-8\"]')");
+    await wait(`JSON.parse(sessionStorage.getItem('calendar-check-data')).dailyMemoSchedules?.[${JSON.stringify(date)}]?.hours.length === 23`);
+    await evaluate("[...document.querySelectorAll('.calendar-day')].find(day => !day.classList.contains('outside-month') && day.getAttribute('aria-pressed') === 'false').click()");
+    await wait("document.querySelector('[data-period=\"morning\"]') && !document.querySelector('[data-period=\"hour-9\"]')");
+    await evaluate("document.querySelector('.today-button').click()");
+    await wait("document.querySelector('[data-period=\"hour-9\"]')?.value === '合成小时备忘'");
+    await send('Page.reload'); await delay(1000);
+    await wait("document.querySelector('[data-period=\"hour-9\"]')?.value === '合成小时备忘' && !document.querySelector('[data-period=\"hour-8\"]')");
+    await evaluate("document.querySelector('.calendar-button').click()");
+    await wait("document.querySelector('.matrix')");
   });
   assert.deepEqual(errors, [], 'Browser exceptions or network failures');
   if (interactionFailures.length) throw new AggregateError(interactionFailures, 'Interaction preservation regressions failed');

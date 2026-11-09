@@ -101,6 +101,11 @@ fn validate(value: &Value) -> Result<(), String> {
             if !crate::history::valid_date(date) || !text.is_string() { return Err("日记数据无法读取，停止写入".into()); }
         }
     }
+    if let Some(schedules) = object.get("dailyMemoSchedules") {
+        let schedules: crate::history::DailyMemoSchedules = serde_json::from_value(schedules.clone())
+            .map_err(|_| "备忘录时间段无法读取，已停止保存")?;
+        crate::history::validate_memo_schedules(&schedules)?;
+    }
     if object.contains_key("completedTasks") && !value["completedTasks"].is_array() { return Err("已完成仓库无法读取，停止写入".into()); }
     if let Some(records) = value.get("completedTasks").and_then(Value::as_array) {
         for record in records {
@@ -118,7 +123,7 @@ fn commit(root: &Path, patch: Value) -> Result<(), String> {
     let before = current.clone();
     let updates = patch.as_object().ok_or("Invalid local patch")?;
     for (key, value) in updates {
-        if !["tasks", "settings", "dailyMemos", "dailyDiaries", "syncMarks", "completedTasks", "taskDay"].contains(&key.as_str()) {
+        if !["tasks", "settings", "dailyMemos", "dailyDiaries", "dailyMemoSchedules", "syncMarks", "completedTasks", "taskDay"].contains(&key.as_str()) {
             return Err("Unsupported local data field".into());
         }
         if key == "settings" {
