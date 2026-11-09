@@ -3,7 +3,7 @@ import { flushSync } from 'react-dom';
 import { invoke } from '@tauri-apps/api/core';
 import { beginImageSave, endImageSave, imageIds, withTaskImages } from '../taskImages';
 import { taskDocuments, withDocuments, type TaskDocument } from '../taskDocuments';
-import { findTaskLinks } from '../taskLinks';
+import { linkFromSelection } from '../taskLinks';
 import { TaskImage } from './TaskImage';
 import { TaskDocuments } from './TaskDocuments';
 
@@ -108,8 +108,9 @@ export function MemoField({ period, label, text, attachments, onChange, onAttach
     </div>
     <textarea ref={field} id={`memo-field-${period}`} className="memo-text" data-period={period} rows={2} value={text}
       aria-label={`${label}备忘录`} placeholder={`写下${label}的安排…`}
-      title="可拖入或粘贴文件、图片和网页链接"
+      title="可拖入或粘贴文件、图片和网页链接；单击网址直接打开"
       onChange={event => onChange(event.target.value)}
+      onClick={(event) => { const url = linkFromSelection(text, event.currentTarget); if (url) { setError(''); void invoke('open_task_link', { url }).catch(() => setError('无法打开链接，请检查默认浏览器设置。')); } }}
       onPaste={event => {
         const files = Array.from(event.clipboardData.files);
         if (files.length) { event.preventDefault(); void addFiles(files); }
@@ -125,9 +126,5 @@ export function MemoField({ period, label, text, attachments, onChange, onAttach
         taskDocuments(current).filter((_, position) => position !== index)))} />}
     {images.map((id, index) => <TaskImage key={`${id}-${index}`} id={id} onRemove={busy ? undefined : () =>
       onAttachmentsChange(current => withDocuments(withTaskImages('', imageIds(current).filter((_, position) => position !== index)), taskDocuments(current)))} />)}
-    {findTaskLinks(text).map(({ url }) => <button key={url} type="button" className="task-link" title={url}
-      onClick={() => { setError(''); void invoke('open_task_link', { url }).catch(() => setError('无法打开链接，请检查默认浏览器设置。')); }}>
-      打开链接：{url}
-    </button>)}
   </div>;
 }

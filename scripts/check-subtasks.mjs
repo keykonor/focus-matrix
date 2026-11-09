@@ -119,7 +119,12 @@ try {
   await click('.quadrant-not-important-not-urgent .delete-button');
   await wait("document.querySelectorAll('.task-item').length===3");
   await nativeDrop(root+' .task-text',{text:'https://example.com/matrix-doc'});
-  await wait("document.querySelector('.task-link')");
+  await wait(`document.querySelector(${JSON.stringify(root+' .task-text')})?.value.includes('https://example.com/matrix-doc')`);
+  assert.equal(await evaluate("document.querySelectorAll('.task-link').length"), 0, '链接下方不应再出现「打开链接」按钮');
+  await evaluate(`(() => { const field=document.querySelector(${JSON.stringify(root+' .task-text')}); field.focus();
+    const at=field.value.indexOf('https://example.com/matrix-doc'); field.setSelectionRange(at+8,at+8);
+    field.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true})); })()`);
+  await wait("window.interactionCheck.linkOpens.includes('https://example.com/matrix-doc')");
   // Restore synthetic fixture's title for the existing history assertions.
   await edit(root+' .task-text','准备本周汇报');await click('.save-version-button');
   assert.equal(await evaluate("document.querySelectorAll('.subtask-row input[type=checkbox], .subtasks-toolbar').length"), 0);

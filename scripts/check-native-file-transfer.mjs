@@ -79,7 +79,7 @@ try {
  await evaluate(`(()=>{const e=document.querySelector('${source}');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(e,'https://example.com/matrix-native-check');e.dispatchEvent(new Event('input',{bubbles:true}));e.focus();e.select();})()`);
  const sourcePoint=await evaluate(`(()=>{const r=document.querySelector('${source}').getBoundingClientRect();return {sourceX:r.x+15,sourceY:r.y+12};})()`);
  await nativeInput(row+' .task-text','text',[],'',sourcePoint);
- await wait("document.querySelector('.task-link')");
+ await wait("[...document.querySelectorAll('.task-text')].some(e=>e.value.includes('https://example.com/matrix-native-check')) && !document.querySelector('.task-link')");
  assert.ok((await evaluate('window.nativeTransferEvents')).some(e=>e.payload.text?.includes('https://example.com/matrix-native-check')),'Text did not pass through native OLE target');
  await evaluate("document.querySelector('.quadrant-important-not-urgent .delete-button').click()");
  console.log('actual Unicode URL OLE drop: OK');

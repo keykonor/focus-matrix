@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { flushSync } from 'react-dom';
-import { findTaskLinks } from '../taskLinks';
+import { linkFromSelection } from '../taskLinks';
 import { beginImageSave, endImageSave, imageIds, visibleTaskText, withTaskImages } from '../taskImages';
 import { TaskImage } from './TaskImage';
 import { TaskDocuments } from './TaskDocuments';
@@ -66,6 +66,7 @@ export function TaskItem({ task, mark, focus, fontSize, onChange, onDelete, onEn
     } catch (cause) { setImageError(typeof cause==='string'?cause:'文档粘贴失败，请重试。'); }
     finally { imagePending.current=false;endImageSave();setAddingImage(false); }
   };
+  const openLink=(url:string)=>{setLinkError(false);void invoke('open_task_link',{url}).catch(()=>setLinkError(true));};
   const receiveDrop=({id,text}:{id?:string;text?:string})=>{
     if(id)void pasteDocuments('take_dropped_files',{id});
     else if(text) {const current=visibleTaskText(taskRef.current.text);updateText(`${current}${current?'\n':''}${text}`);}
@@ -120,8 +121,9 @@ export function TaskItem({ task, mark, focus, fontSize, onChange, onDelete, onEn
         if (files.length) { void addImages(files); return; }
         const value = event.dataTransfer.getData('text/uri-list').split(/\r?\n/).find(line => /^https?:\/\//i.test(line)) || event.dataTransfer.getData('text/plain');
         if (value) updateText(`${visibleTaskText(taskRef.current.text)}${visibleTaskText(taskRef.current.text) ? '\n' : ''}${value}`);
-      }}><textarea ref={inputRef} className="task-text" rows={1} value={text} placeholder="输入任务，回车保存…" aria-label="任务内容" title="Enter 保存并新增，Shift+Enter 换行；可粘贴或拖入文档、图片和链接"
+      }}><textarea ref={inputRef} className="task-text" rows={1} value={text} placeholder="输入任务，回车保存…" aria-label="任务内容" title="Enter 保存并新增，Shift+Enter 换行；可粘贴或拖入文档、图片和链接；单击网址直接打开"
       onChange={(event) => updateText(event.target.value)}
+      onClick={(event) => { const url = linkFromSelection(text, event.currentTarget); if (url) openLink(url); }}
       onPaste={event => { const files = Array.from(event.clipboardData.files);
         if (files.length) { event.preventDefault(); void addImages(files); }
         else if (!event.clipboardData.getData('text/plain') && !event.clipboardData.getData('text/html')) { event.preventDefault(); void pasteDocuments(); }
@@ -137,8 +139,6 @@ export function TaskItem({ task, mark, focus, fontSize, onChange, onDelete, onEn
       {addingImage && <span role="status" className="task-image-message">正在保存附件…</span>}
       {imageError && <span role="alert" className="task-image-message">{imageError}</span>}
       {ids.map((id, index) => <TaskImage key={`${id}-${index}`} id={id} onRemove={() => updateText(visibleTaskText(taskRef.current.text), imageIds(taskRef.current.text).filter((_, i) => i !== index))} />)}
-      {findTaskLinks(text).map(({url}) => <button key={url} type="button" className="task-link" title={url}
-        onClick={() => { setLinkError(false); void invoke('open_task_link', {url}).catch(() => setLinkError(true)); }}>打开链接：{url}</button>)}
       {linkError && <span className="task-link-error" role="alert">无法打开链接，请检查默认浏览器设置。</span>}
       <TaskDocuments text={task.text} busy={addingImage}
         onRemove={index => updateText(text, ids, taskDocuments(task.text).filter((_, i) => i !== index), true)} />
