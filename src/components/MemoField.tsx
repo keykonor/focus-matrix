@@ -108,7 +108,6 @@ export function MemoField({ period, label, text, attachments, onChange, onAttach
     </div>
     <textarea ref={field} id={`memo-field-${period}`} className="memo-text" data-period={period} rows={2} value={text}
       aria-label={`${label}备忘录`} placeholder={`写下${label}的安排…`}
-      title="可拖入或粘贴文件、图片和网页链接；单击网址直接打开"
       onChange={event => onChange(event.target.value)}
       onClick={(event) => { const url = linkFromSelection(text, event.currentTarget); if (url) { setError(''); void invoke('open_task_link', { url }).catch(() => setError('无法打开链接，请检查默认浏览器设置。')); } }}
       onPaste={event => {

@@ -18,7 +18,7 @@ function SubtaskRow({ item, focus, onChange, onEnter, onDelete }: {
   }, [item.text]);
   return <div className="subtask-row" data-subtask-id={item.id}>
     <textarea ref={input} rows={1} className="subtask-text" aria-label="子任务内容" placeholder="输入子任务，回车保存…"
-      title="Enter 保存并新增子任务，Shift+Enter 换行" value={item.text} onChange={event => onChange({ text: event.target.value })}
+      value={item.text} onChange={event => onChange({ text: event.target.value })}
       onKeyDown={event => {
         if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); onEnter(); }
       }} />

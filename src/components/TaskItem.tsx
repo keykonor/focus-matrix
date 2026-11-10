@@ -121,7 +121,7 @@ export function TaskItem({ task, mark, focus, fontSize, onChange, onDelete, onEn
         if (files.length) { void addImages(files); return; }
         const value = event.dataTransfer.getData('text/uri-list').split(/\r?\n/).find(line => /^https?:\/\//i.test(line)) || event.dataTransfer.getData('text/plain');
         if (value) updateText(`${visibleTaskText(taskRef.current.text)}${visibleTaskText(taskRef.current.text) ? '\n' : ''}${value}`);
-      }}><textarea ref={inputRef} className="task-text" rows={1} value={text} placeholder="输入任务，回车保存…" aria-label="任务内容" title="Enter 保存并新增，Shift+Enter 换行；可粘贴或拖入文档、图片和链接；单击网址直接打开"
+      }}><textarea ref={inputRef} className="task-text" rows={1} value={text} placeholder="输入任务，回车保存…" aria-label="任务内容"
       onChange={(event) => updateText(event.target.value)}
       onClick={(event) => { const url = linkFromSelection(text, event.currentTarget); if (url) openLink(url); }}
       onPaste={event => { const files = Array.from(event.clipboardData.files);
