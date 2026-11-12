@@ -22,9 +22,10 @@ interface Props {
   onDiaryChange: (date: string, text: string) => void;
   onScheduleChange: (date: string, update: (current: MemoSchedule) => MemoSchedule) => void;
   onChatImport: ComponentProps<typeof ChatImportPanel>['onImport'];
+  onChatUndo?: () => number;
 }
 
-export function CalendarPanel({ today, memos, diaries, schedules, onDiaryChange, marks, onChange, onScheduleChange, onChatImport }: Props) {
+export function CalendarPanel({ today, memos, diaries, schedules, onDiaryChange, marks, onChange, onScheduleChange, onChatImport, onChatUndo }: Props) {
   const [selectedDate, setSelectedDate] = useState(today);
   const [month, setMonth] = useState(today.slice(0, 7));
   const [importOpen, setImportOpen] = useState(false);
@@ -55,7 +56,7 @@ export function CalendarPanel({ today, memos, diaries, schedules, onDiaryChange,
     else delete attachments[period];
     return { ...current, attachments };
   });
-  if (importOpen) return <ChatImportPanel date={selectedDate} onImport={onChatImport} onBack={() => setImportOpen(false)} />;
+  if (importOpen) return <ChatImportPanel date={selectedDate} onImport={onChatImport} onUndo={onChatUndo} onBack={() => setImportOpen(false)} />;
   return <main className="calendar-panel" aria-label="日期与每日备忘录">
     <aside className="calendar-sidebar" aria-label="月历">
       <div className="calendar-month-header">
