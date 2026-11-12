@@ -9,6 +9,7 @@ mod local_data;
 mod task_links;
 mod task_images;
 mod task_documents;
+mod chat_extraction;
 
 struct DesktopLayer(AtomicBool);
 
@@ -106,7 +107,7 @@ pub fn run() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             Some(vec!["--autostart"]),
         ))
-        .invoke_handler(tauri::generate_handler![backup_corrupt_store, quit_app, set_desktop_layer, task_links::open_task_link, task_images::save_task_image, task_images::read_task_image, task_documents::save_task_document, task_documents::open_task_document, task_documents::paste_task_documents, task_documents::take_dropped_files, task_documents::take_chat_screenshot,
+        .invoke_handler(tauri::generate_handler![backup_corrupt_store, quit_app, set_desktop_layer, task_links::open_task_link, task_images::save_task_image, task_images::read_task_image, task_documents::save_task_document, task_documents::open_task_document, task_documents::paste_task_documents, task_documents::take_dropped_files, task_documents::take_chat_screenshot, chat_extraction::extract_chat_events,
             local_data::read_local_data, local_data::commit_local_data, local_data::read_update_request, local_data::finish_update_prepare, local_data::ack_update_restore,
             history::save_content_version, history::list_content_versions, history::get_content_version,
             cloud::get_cloud_status, cloud::configure_cloud, cloud::sync_cloud, cloud::set_cloud_sharing, cloud::rotate_cloud_link, cloud::ack_cloud_applied, cloud::set_share_editing, cloud::create_mobile_pairing, cloud::list_mobile_devices, cloud::revoke_mobile_device, cloud::get_cloud_changes])

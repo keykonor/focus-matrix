@@ -7,7 +7,7 @@ export async function readChatScreenshot(image: Blob): Promise<string> {
   const bitmap = await createImageBitmap(image).catch(() => { throw Error('无法打开截图，请选择 PNG 或 JPEG 图片。'); });
   const canvas = document.createElement('canvas');
   try {
-    const scale = Math.min(1, 4096 / Math.max(bitmap.width, bitmap.height));
+    const scale = Math.min(bitmap.width < 1000 ? 2 : 1, 4096 / Math.max(bitmap.width, bitmap.height));
     canvas.width = Math.max(1, Math.round(bitmap.width * scale));
     canvas.height = Math.max(1, Math.round(bitmap.height * scale));
     const context = canvas.getContext('2d');
@@ -15,6 +15,15 @@ export async function readChatScreenshot(image: Blob): Promise<string> {
     context.fillStyle = 'white';
     context.fillRect(0, 0, canvas.width, canvas.height);
     context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    const edge = context.getImageData(0, 0, canvas.width, 1).data;
+    let brightness = 0;
+    for (let offset = 0; offset < edge.length; offset += 4) {
+      brightness += (edge[offset] + edge[offset + 1] + edge[offset + 2]) / 3;
+    }
+    if (brightness / canvas.width < 96) {
+      context.filter = 'invert(1)';
+      context.drawImage(canvas, 0, 0);
+    }
   } finally {
     bitmap.close();
   }
@@ -34,7 +43,7 @@ export async function readChatScreenshot(image: Blob): Promise<string> {
         errorHandler: () => fail(Error('OCR 识别失败，请检查截图并重试。')),
       });
       if (cancelled) { await worker.terminate(); return ''; }
-      await worker.setParameters({ tessedit_pageseg_mode: PSM.SPARSE_TEXT });
+      await worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_BLOCK });
       const { data } = await worker.recognize(canvas);
       return data.text.trim();
     })();

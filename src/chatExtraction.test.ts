@@ -1,0 +1,48 @@
+import { describe, expect, it } from 'vitest';
+import { buildChatExtractionInput, previewChatEvents } from './chatExtraction';
+import { confirmChatEntry } from './chatImport';
+
+describe('local model chat extraction', () => {
+  it('provides real calendar dates for relative weekdays', () => {
+    const input = buildChatExtractionInput('周一中午12点前填表', '2026-11-12');
+    expect(input).toContain('2026-11-16（周一）');
+    expect(input).toContain('2026-11-20（周五）');
+    expect(input).toContain('周一中午12点前填表');
+  });
+
+  it('keeps the course range, venue and preparation, and a separate form deadline', () => {
+    const source = '11.20（下周五）仁爱集团上课，13:30-17:00，上课地点：仁爱团泊湖接待中心。周一中午\n12:00前填表。';
+    const preview = previewChatEvents(JSON.stringify({ events: [
+      { kind: 'event', title: '创业实战课第4讲', date: '2026-11-20', time: '13:30', end: '17:00',
+        location: '仁爱集团（仁爱团泊湖接待中心）', address: '天津市某路8号', preparation: '' },
+      { kind: 'deadline', title: '填写大巴通勤和晚餐统计表', date: '2026-11-18', time: '12:00', end: '',
+        location: '', address: '', preparation: '按实际情况填报，特殊过敏或忌口请备注' },
+    ] }), source, '2026-11-12');
+    expect(preview.map(confirmChatEntry)).toEqual([
+      { date: '2026-11-20', period: 'afternoon', hour: 13,
+        text: '13:30–17:00 创业实战课第4讲 · 地点 仁爱集团（仁爱团泊湖接待中心）' },
+      { date: '2026-11-16', period: 'afternoon', hour: 12,
+        text: '12:00 前 填写大巴通勤和晚餐统计表 · 准备 按实际情况填报，特殊过敏或忌口请备注' },
+    ]);
+  });
+
+  it('leaves invalid dates and times unassigned and keeps a quoted address', () => {
+    const [entry] = previewChatEvents(JSON.stringify({ events: [
+      { kind: 'event', title: '会议', date: '2026-02-30', time: '25:00', end: '',
+        location: '会客厅', address: '和平路 8 号', preparation: '' },
+    ] }), '地址：和平路8号，会客厅');
+    expect(entry.text).toContain('地址 和平路 8 号');
+    expect(entry.date).toBeUndefined();
+    expect(entry.hour).toBeUndefined();
+    expect(confirmChatEntry(entry)).toBeUndefined();
+  });
+
+  it('attaches form instructions to the separate form deadline', () => {
+    const previews = previewChatEvents(JSON.stringify({ events: [
+      { kind: 'event', title: '创业实战课', date: '2026-11-20', time: '13:30', preparation: '填写在线表格，统计大巴通勤及晚餐需求' },
+      { kind: 'deadline', title: '提交创业实战课准备信息', date: '2026-11-16', time: '12:00', preparation: '' },
+    ] }), '周一中午12:00前完成在线表格填写。');
+    expect(previews[0].text).toBe('创业实战课');
+    expect(previews[1].text).toContain('准备 填写在线表格，统计大巴通勤及晚餐需求');
+  });
+});

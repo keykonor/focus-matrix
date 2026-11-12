@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { chatTimeLabel, confirmChatEntry, parseChatImport, type ChatEntry, type ChatPreview } from '../chatImport';
+import { chatTimeLabel, confirmChatEntry, type ChatEntry, type ChatPreview } from '../chatImport';
+import { buildChatExtractionInput, previewChatEvents } from '../chatExtraction';
 import { memoPeriods, type MemoPeriod } from '../types';
 
 interface Props {
@@ -29,37 +30,35 @@ export function ChatImportPanel({ date, onImport, onUndo, onBack }: Props) {
     return () => { mounted.current = false; };
   }, []);
 
-  const previewText = (value: string) => {
-    if (value.length > 12_000) throw Error('每次最多导入 12,000 字，请分批导入。');
-    const entries = parseChatImport(value, date);
-    if (!entries.length) { setMessage('没有找到可导入的事项。'); return; }
-    setPreview(entries.map((entry, id) => ({ ...entry, id })));
-    setText('');
-    setMessage('已识别 ' + entries.length + ' 条，等待确认。');
-  };
-
-  const submit = (value: string) => {
-    if (processing.current) return;
-    try { previewText(value); }
-    catch (cause) { setMessage(cause instanceof Error ? cause.message : '导入失败，请重试。'); }
-  };
-
-  const importImage = async (load: () => Promise<Blob>) => {
+  const extract = async (load: () => Promise<string>, recognizingImage = false) => {
     if (processing.current) return;
     processing.current = true;
     setBusy(true);
-    setMessage('正在本机识别截图…');
+    setMessage(recognizingImage ? '正在本机识别截图…' : '正在用本地千问提取关键事项…');
     try {
-      const { readChatScreenshot } = await import('../chatOcr');
-      const recognized = await readChatScreenshot(await load());
-      if (mounted.current) previewText(recognized);
+      const source = await load();
+      if (!mounted.current) return;
+      setText(source.slice(0, 12_000));
+      setMessage('正在用本地千问提取关键事项…');
+      const input = buildChatExtractionInput(source, date);
+      const output = await invoke<string>('extract_chat_events', { input });
+      if (!mounted.current) return;
+      const entries = previewChatEvents(output, source, date);
+      setPreview(entries.map((entry, id) => ({ ...entry, id })));
+      setText('');
+      setMessage(entries.length ? '已提取 ' + entries.length + ' 条关键事项，等待确认。' : '没有找到需要记录的事项。');
     } catch (cause) {
-      if (mounted.current) setMessage(typeof cause === 'string' ? cause : cause instanceof Error ? cause.message : '截图识别失败，请重试。');
+      if (mounted.current) setMessage(typeof cause === 'string' ? cause : cause instanceof Error ? cause.message : '提取失败，请重试。');
     } finally {
       processing.current = false;
       if (mounted.current) setBusy(false);
     }
   };
+  const submit = (value: string) => { void extract(async () => value); };
+  const importImage = (load: () => Promise<Blob>) => extract(async () => {
+    const { readChatScreenshot } = await import('../chatOcr');
+    return readChatScreenshot(await load());
+  }, true);
 
   const importFiles = (files: File[]) => {
     if (files.length !== 1) { setMessage('每次请选择一张截图。'); return; }
@@ -105,7 +104,7 @@ export function ChatImportPanel({ date, onImport, onUndo, onBack }: Props) {
           submit(event.clipboardData.getData('text/plain'));
         }
       }}>
-      <p>拖入或粘贴微信截图、聊天文字。确认预览后写入对应日期的日历备忘录。</p>
+      <p>拖入或粘贴微信截图、聊天文字。用本地千问提取日期、时间、地点和准备事项，确认后写入日历。</p>
       <textarea aria-label="聊天文字" placeholder="也可以在这里输入聊天文字…" rows={3} maxLength={12000} value={text}
         disabled={busy} onChange={event => setText(event.target.value)} />
       <div className="chat-import-actions">
@@ -115,7 +114,7 @@ export function ChatImportPanel({ date, onImport, onUndo, onBack }: Props) {
           event.currentTarget.value = '';
           if (files.length) importFiles(files);
         }} />
-        <button type="button" disabled={busy || !text.trim()} onClick={() => submit(text)}>识别并预览</button>
+        <button type="button" disabled={busy || !text.trim()} onClick={() => submit(text)}>提取并预览</button>
         {onUndo && <button type="button" disabled={busy} onClick={() => {
           const count = onUndo();
           setMessage('已撤销 ' + count + ' 条记录，编辑过的内容已保留。');
@@ -135,10 +134,12 @@ export function ChatImportPanel({ date, onImport, onUndo, onBack }: Props) {
               patch(entry.id, { date: event.target.value || undefined })} /></label>
             <label>时段 <select value={entry.hour !== undefined ? 'precise' : entry.period ?? ''} onChange={event => {
               const period = memoPeriods.find(value => value === event.target.value);
-              patch(entry.id, { period, hour: undefined, minute: undefined });
+              patch(entry.id, { period, hour: undefined, minute: undefined, endTime: undefined });
             }}>
               <option value="">选择时段</option>
-              {entry.hour !== undefined && <option value="precise">{chatTimeLabel(entry.hour, entry.minute ?? 0)}</option>}
+              {entry.hour !== undefined && <option value="precise">
+                {chatTimeLabel(entry.hour, entry.minute ?? 0)}{entry.endTime ? '–' + entry.endTime : entry.deadline ? ' 前' : ''}
+              </option>}
               {memoPeriods.map(period => <option key={period} value={period}>{periodLabels[period]}</option>)}
             </select></label>
             <button type="button" aria-label={'移除第 ' + (index + 1) + ' 条'} onClick={() =>

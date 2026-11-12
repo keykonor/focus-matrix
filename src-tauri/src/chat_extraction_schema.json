@@ -1,0 +1,27 @@
+{
+  "type": "object",
+  "required": ["events"],
+  "additionalProperties": false,
+  "properties": {
+    "events": {
+      "type": "array",
+      "maxItems": 24,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "title", "date", "time", "end", "period", "location", "address", "preparation"],
+        "properties": {
+          "kind": { "enum": ["event", "deadline"] },
+          "title": { "type": "string" },
+          "date": { "type": "string" },
+          "time": { "type": "string" },
+          "end": { "type": "string" },
+          "period": { "enum": ["", "morning", "afternoon", "evening"] },
+          "location": { "type": "string" },
+          "address": { "type": "string" },
+          "preparation": { "type": "string" }
+        }
+      }
+    }
+  }
+}
