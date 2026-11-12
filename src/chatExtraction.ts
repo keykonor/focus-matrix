@@ -1,5 +1,5 @@
 import { dateFromKey, isDateKey, localDateKey } from './calendarModel';
-import type { ChatPreview } from './chatImport';
+import { chatTimeLabel, type ChatPreview } from './chatImport';
 import { memoPeriods } from './types';
 
 const weekdays = '日一二三四五六';
@@ -34,6 +34,39 @@ function compact(value: string): string {
   return value.normalize('NFKC').replace(/\s+/g, '');
 }
 
+function spokenNumber(value: string): number {
+  if (/^\d+$/.test(value)) return Number(value);
+  const digit = (symbol: string) => symbol === '两' ? 2 : '零一二三四五六七八九'.indexOf(symbol);
+  if (!value.includes('十')) return digit(value);
+  const [tens, units] = value.split('十');
+  return (tens ? digit(tens) : 1) * 10 + (units ? digit(units) : 0);
+}
+
+function sourceClockTimes(source: string): Set<string> {
+  const times = new Set<string>();
+  const add = (hour: number, minute: number) => {
+    if (hour >= 0 && hour < 24 && minute >= 0 && minute < 60) times.add(chatTimeLabel(hour, minute));
+  };
+  for (const clause of source.normalize('NFKC').split(/[\n，,。！？；!?;]/)) {
+    const text = clause.replace(/[ \t]/g, '');
+    for (const match of text.matchAll(/(?<!\d)(?:(上午|早上|凌晨|中午|下午|晚上|傍晚))?(\d{1,2}):(\d{2})(?!\d)/g)) {
+      let hour = Number(match[2]);
+      if (hour < 12 && /中午|下午|晚上|傍晚/.test(match[1] ?? '')) hour += 12;
+      add(hour, Number(match[3]));
+    }
+    for (const match of text.matchAll(/([零一二两三四五六七八九十\d]{1,3})[点時时](?:(半)|([零一二两三四五六七八九十\d]{1,3})分?)?/g)) {
+      let hour = spokenNumber(match[1]);
+      const prefix = text.slice(0, match.index);
+      const periods = [...prefix.matchAll(/凌晨|早上|上午|中午|下午|傍晚|晚上|今晚|明晚/g)];
+      const period = periods.at(-1)?.[0];
+      if (hour < 12 && !period) continue;
+      if (hour < 12 && period && /中午|下午|傍晚|晚上|今晚|明晚/.test(period)) hour += 12;
+      add(hour, match[2] ? 30 : match[3] ? spokenNumber(match[3]) : 0);
+    }
+  }
+  return times;
+}
+
 function weekdayDeadlineDate(source: string, time: string, reference: string): string | undefined {
   const hints = [...source.matchAll(/(上|本|这|下下|下)?(?:周|星期)([一二三四五六日天])(?:早上|上午|中午|下午|晚上|凌晨)?(\d{1,2}:\d{2})(?:以前|之前|前)/g)]
     .filter(match => match[3].padStart(5, '0') === time &&
@@ -57,6 +90,7 @@ export function previewChatEvents(output: string, source: string, reference?: st
     throw Error('本地模型返回的事项格式有误，请重试。');
   }
   const original = compact(source);
+  const sourceTimes = sourceClockTimes(source);
   const events = result.events.slice(0, 24).filter((value): value is Record<string, unknown> =>
     Boolean(value && typeof value === 'object' && field(value.title, 150) &&
       (value.kind === 'event' || value.kind === 'deadline')));
@@ -74,10 +108,12 @@ export function previewChatEvents(output: string, source: string, reference?: st
     const address = field(event.address, 200);
     const preparation = movePreparation ? (event === formDeadline ? activityPreparation : '') : field(event.preparation, 360);
     const deadline = event.kind === 'deadline';
-    const time = clock(event.time);
+    const proposedTime = clock(event.time);
+    const time = proposedTime && sourceTimes.has(proposedTime) ? proposedTime : undefined;
     const date = (deadline && time && reference && isDateKey(reference) ? weekdayDeadlineDate(original, time, reference) : undefined)
       ?? (isDateKey(modelDate) ? modelDate : undefined);
-    const endTime = time && !deadline ? clock(event.end) : undefined;
+    const proposedEnd = clock(event.end);
+    const endTime = time && !deadline && proposedEnd && sourceTimes.has(proposedEnd) ? proposedEnd : undefined;
     const hour = time === undefined ? undefined : Number(time.slice(0, 2));
     const period = hour === undefined ? memoPeriods.find(value => value === event.period) :
       hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : 'evening';

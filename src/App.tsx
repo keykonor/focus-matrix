@@ -21,7 +21,7 @@ import { changeMemo, localDateKey } from './calendarModel';
 import { useToday } from './hooks/useToday';
 import { changeTask, newTask } from './taskModel';
 import { changeDiary } from './diary';
-import { appendChatLine, removeChatLine, type ChatEntry } from './chatImport';
+import { appendChatLine, removeChatLine, type ChatEntry, type ChatLayouts } from './chatImport';
 import { hasPendingImages } from './taskImages';
 import { cloudTasks, retainLocalSubtasks } from './subtasks';
 import { openDataStore, saveData, type AppData, type LocalDataStore } from './storage';
@@ -306,10 +306,11 @@ export default function App() {
   const updateMemo = (date: string, period: MemoPeriod, text: string) => {if(canEdit())setDailyMemos((current) => changeMemo(current, date, period, text));};
   const updateDiary = (date: string, text: string) => { if (canEdit()) setDailyDiaries(current => changeDiary(current, date, text)); };
 
-  const importChat = (entries: ChatEntry[]) => {
+  const importChat = (entries: ChatEntry[], modes: ChatLayouts) => {
     if (!canEdit()) return 0;
     const added: Array<ChatEntry & { previous: string; written: string }> = [];
-    const revealed = new Set<string>();
+    const revealed = new Map<string, { note: string; attachment?: string }>();
+    const changedModes = new Map<string, MemoSchedule | undefined>();
     const apply = <T extends ChatEntry,>(changes: T[], replace: (value: string, entry: T) => string, undoing = false) => {
       if (!canEdit()) return 0;
       const current = dataRef.current;
@@ -326,11 +327,13 @@ export default function App() {
           const notes = { ...schedule.notes };
           if (written) notes[hour] = written; else delete notes[hour];
           const slot = date + ':' + hour;
+          const attachment = schedule.attachments?.['hour-' + hour];
+          const originalSlot = revealed.get(slot);
           let hours = schedule.hours;
           if (!undoing && !hours.includes(hour)) {
-            revealed.add(slot);
+            revealed.set(slot, { note: previous, attachment });
             hours = [...hours, hour].sort((a, b) => a - b);
-          } else if (undoing && revealed.has(slot) && !written && !schedule.attachments?.['hour-' + hour] && hours.length > 1) {
+          } else if (undoing && originalSlot?.note === written && originalSlot.attachment === attachment && hours.length > 1) {
             hours = hours.filter(value => value !== hour);
           }
           schedules = { ...schedules, [date]: { ...schedule, notes, hours } };
@@ -340,13 +343,32 @@ export default function App() {
           if (previous === written) continue;
           memos = changeMemo(memos, date, period, written);
         }
+        const schedule = schedules?.[date] ?? defaultMemoSchedule;
+        if (!undoing && schedule.mode !== modes[date]) {
+          changedModes.set(date, current.dailyMemoSchedules?.[date]);
+          schedules = { ...schedules, [date]: { ...schedule, mode: modes[date] } };
+        }
         count++;
+      }
+      if (undoing) {
+        for (const [date, prior] of changedModes) {
+          const schedule = schedules?.[date];
+          const original = prior ?? defaultMemoSchedule;
+          if (!schedule || schedule.mode !== modes[date] || !same({ ...schedule, mode: original.mode }, original)) continue;
+          if (prior) schedules = { ...schedules, [date]: prior };
+          else {
+            schedules = { ...schedules };
+            delete schedules[date];
+            if (!Object.keys(schedules).length && !hadSchedules) schedules = undefined;
+          }
+        }
       }
       if (memos !== current.dailyMemos) setDailyMemos(memos);
       if (schedules !== current.dailyMemoSchedules) setDailyMemoSchedules(schedules);
       return count;
     };
-    const destinations = entries.map(entry => dataRef.current.dailyMemoSchedules?.[entry.date]?.mode === 'hourly'
+    const hadSchedules = dataRef.current.dailyMemoSchedules !== undefined;
+    const destinations = entries.map(entry => modes[entry.date] === 'hourly'
       ? entry : { ...entry, hour: undefined });
     const count = apply(destinations, (previous, entry) => {
       const written = appendChatLine(previous, entry.text);

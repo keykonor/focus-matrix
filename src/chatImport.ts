@@ -1,5 +1,15 @@
-import { isDateKey } from './calendarModel';
-import type { MemoPeriod } from './types';
+import { hasMemo, isDateKey } from './calendarModel';
+import type { DailyMemoSchedules, MemoSchedule } from './memoSchedule';
+import type { DailyMemos, MemoPeriod } from './types';
+
+export type ChatLayout = MemoSchedule['mode'];
+export type ChatLayouts = Record<string, ChatLayout>;
+
+interface ChatLayoutPlan {
+  suggested: ChatLayout;
+  existing?: ChatLayout;
+  conflict: boolean;
+}
 
 export interface ChatEntry {
   date: string;
@@ -30,6 +40,20 @@ export function confirmChatEntry(preview: ChatPreview): ChatEntry | undefined {
   const start = chatTimeLabel(hour, minute);
   const time = deadline ? start + ' 前' : endTime ? start + '–' + endTime : start;
   return { date, period, hour, text: value.startsWith(time + ' ') ? value : time + ' ' + value };
+}
+
+export function planChatLayouts(entries: ChatEntry[], schedules: DailyMemoSchedules | undefined, memos: DailyMemos): Record<string, ChatLayoutPlan> {
+  const requested = new Map<string, Set<ChatLayout>>();
+  for (const { date, hour } of entries) {
+    const modes = requested.get(date) ?? new Set<ChatLayout>();
+    modes.add(hour === undefined ? 'periods' : 'hourly');
+    requested.set(date, modes);
+  }
+  return Object.fromEntries(Array.from(requested, ([date, modes]) => {
+    const existing = schedules?.[date]?.mode ?? (hasMemo(memos[date]) ? 'periods' : undefined);
+    const suggested = modes.has('hourly') ? 'hourly' : 'periods';
+    return [date, { suggested, ...(existing ? { existing } : {}), conflict: modes.size > 1 || Boolean(existing && existing !== suggested) }];
+  }));
 }
 
 export function appendChatLine(current: string, line: string): string {

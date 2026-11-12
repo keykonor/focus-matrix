@@ -51,22 +51,32 @@ pub fn take_dropped_files(app:tauri::AppHandle,state:tauri::State<'_,DropState>,
 }
 
 #[tauri::command]
-pub fn take_chat_screenshot(state: tauri::State<'_, DropState>, id: String) -> Result<tauri::ipc::Response, String> {
+pub fn take_chat_screenshots(state: tauri::State<'_, DropState>, id: String) -> Result<tauri::ipc::Response, String> {
     use std::io::Read;
     const IMAGE_LIMIT: u64 = 10 * 1024 * 1024;
+    const BATCH_LIMIT: usize = 32 * 1024 * 1024;
     let paths = state.take(&id)?;
-    let [path] = paths.as_slice() else { return Err("每次请拖入一张截图".into()); };
-    let extension = path.extension().and_then(|value| value.to_str()).unwrap_or_default().to_ascii_lowercase();
-    if !["png", "jpg", "jpeg", "webp"].contains(&extension.as_str()) {
-        return Err("请选择 PNG、JPEG 或 WebP 截图".into());
+    if paths.is_empty() || paths.len() > 8 { return Err("每批最多添加 8 张截图".into()); }
+    let mut packet = Vec::new();
+    let mut total = 0;
+    for path in paths {
+        let extension = path.extension().and_then(|value| value.to_str()).unwrap_or_default().to_ascii_lowercase();
+        if !["png", "jpg", "jpeg", "webp"].contains(&extension.as_str()) {
+            return Err("请选择 PNG、JPEG 或 WebP 截图".into());
+        }
+        if !fs::metadata(&path).map_err(|_| "无法读取截图")?.is_file() { return Err("请选择截图文件".into()); }
+        let file = fs::File::open(path).map_err(|_| "无法读取截图")?;
+        let metadata = file.metadata().map_err(|_| "无法读取截图")?;
+        if !metadata.is_file() || metadata.len() > IMAGE_LIMIT { return Err("请选择不超过 10 MB 的截图".into()); }
+        let start = packet.len();
+        packet.extend_from_slice(&[0; 4]);
+        let size = file.take(IMAGE_LIMIT + 1).read_to_end(&mut packet).map_err(|_| "无法读取截图")?;
+        if size == 0 || size as u64 > IMAGE_LIMIT { return Err("截图为空或超过 10 MB".into()); }
+        total += size;
+        if total > BATCH_LIMIT { return Err("每批截图合计不能超过 32 MB".into()); }
+        packet[start..start + 4].copy_from_slice(&(size as u32).to_le_bytes());
     }
-    let file = fs::File::open(path).map_err(|_| "无法读取截图")?;
-    let metadata = file.metadata().map_err(|_| "无法读取截图")?;
-    if !metadata.is_file() || metadata.len() > IMAGE_LIMIT { return Err("请选择不超过 10 MB 的截图".into()); }
-    let mut bytes = Vec::new();
-    file.take(IMAGE_LIMIT + 1).read_to_end(&mut bytes).map_err(|_| "无法读取截图")?;
-    if bytes.is_empty() || bytes.len() as u64 > IMAGE_LIMIT { return Err("截图为空或超过 10 MB".into()); }
-    Ok(tauri::ipc::Response::new(bytes))
+    Ok(tauri::ipc::Response::new(packet))
 }
 #[cfg(windows)]
 #[link(name="user32")]

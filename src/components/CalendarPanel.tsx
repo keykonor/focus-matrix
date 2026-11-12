@@ -56,7 +56,8 @@ export function CalendarPanel({ today, memos, diaries, schedules, onDiaryChange,
     else delete attachments[period];
     return { ...current, attachments };
   });
-  if (importOpen) return <ChatImportPanel date={selectedDate} onImport={onChatImport} onUndo={onChatUndo} onBack={() => setImportOpen(false)} />;
+  if (importOpen) return <ChatImportPanel date={selectedDate} memos={memos} schedules={schedules}
+    onImport={onChatImport} onUndo={onChatUndo} onBack={() => setImportOpen(false)} />;
   return <main className="calendar-panel" aria-label="日期与每日备忘录">
     <aside className="calendar-sidebar" aria-label="月历">
       <div className="calendar-month-header">

@@ -2,8 +2,7 @@ import { createWorker, OEM, PSM, type Worker } from 'tesseract.js';
 import workerPath from 'tesseract.js/dist/worker.min.js?url';
 import corePath from 'tesseract.js-core/tesseract-core-lstm.wasm.js?url';
 
-export async function readChatScreenshot(image: Blob): Promise<string> {
-  if (!image.size || image.size > 10 * 1024 * 1024) throw Error('请选择不超过 10 MB 的截图。');
+async function prepareScreenshot(image: Blob): Promise<HTMLCanvasElement> {
   const bitmap = await createImageBitmap(image).catch(() => { throw Error('无法打开截图，请选择 PNG 或 JPEG 图片。'); });
   const canvas = document.createElement('canvas');
   try {
@@ -27,6 +26,10 @@ export async function readChatScreenshot(image: Blob): Promise<string> {
   } finally {
     bitmap.close();
   }
+  return canvas;
+}
+
+export async function readChatScreenshots(images: Blob[], progress: (current: number, total: number) => void): Promise<string[]> {
   let worker: Worker | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let fail: (error: Error) => void = () => {};
@@ -34,7 +37,7 @@ export async function readChatScreenshot(image: Blob): Promise<string> {
   try {
     const failed = new Promise<never>((_, reject) => {
       fail = reject;
-      timer = setTimeout(() => reject(Error('识别超时，请裁剪截图后重试。')), 60_000);
+      timer = setTimeout(() => reject(Error('识别超时，请减少截图数量或裁剪后重试。')), 60_000 + images.length * 15_000);
     });
     const recognition = (async () => {
       worker = await createWorker(['chi_sim', 'eng'], OEM.LSTM_ONLY, {
@@ -42,10 +45,19 @@ export async function readChatScreenshot(image: Blob): Promise<string> {
         langPath: new URL('/ocr', location.href).href,
         errorHandler: () => fail(Error('OCR 识别失败，请检查截图并重试。')),
       });
-      if (cancelled) { await worker.terminate(); return ''; }
+      if (cancelled) { await worker.terminate(); return []; }
       await worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_BLOCK });
-      const { data } = await worker.recognize(canvas);
-      return data.text.trim();
+      const texts: string[] = [];
+      for (const [index, image] of images.entries()) {
+        if (cancelled) break;
+        progress(index + 1, images.length);
+        const canvas = await prepareScreenshot(image).catch(() => { throw Error('无法打开第 ' + (index + 1) + ' 张截图。'); });
+        if (cancelled) break;
+        const { data } = await worker.recognize(canvas);
+        if (!data.text.trim()) throw Error('第 ' + (index + 1) + ' 张截图未识别到文字，请移除或更换。');
+        texts.push(data.text.trim());
+      }
+      return texts;
     })();
     return await Promise.race([recognition, failed]);
   } finally {

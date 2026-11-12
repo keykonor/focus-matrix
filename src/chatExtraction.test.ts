@@ -45,4 +45,21 @@ describe('local model chat extraction', () => {
     expect(previews[0].text).toBe('创业实战课');
     expect(previews[1].text).toContain('准备 填写在线表格，统计大巴通勤及晚餐需求');
   });
+
+  it('keeps a period-only entry when the model invents an exact time', () => {
+    const source = '2026年11月19日下午去图书馆整理材料。\n2026年11月20日19:30参加创业实战课。';
+    const entries = previewChatEvents(JSON.stringify({ events: [
+      { kind: 'event', title: '整理材料', date: '2026-11-19', time: '17:00', period: 'afternoon' },
+      { kind: 'event', title: '创业实战课', date: '2026-11-20', time: '19:30', period: 'evening' },
+    ] }), source);
+    expect(entries[0]).toMatchObject({ period: 'afternoon', hour: undefined });
+    expect(entries[1]).toMatchObject({ hour: 19, minute: 30 });
+  });
+
+  it('recognizes evidence for a spoken time range without assigning an invented end', () => {
+    const [entry] = previewChatEvents(JSON.stringify({ events: [
+      { kind: 'event', title: '开会', date: '2026-11-19', time: '13:30', end: '17:00', period: 'afternoon' },
+    ] }), '11月19日下午一点半到五点开会。');
+    expect(entry).toMatchObject({ hour: 13, minute: 30, endTime: '17:00' });
+  });
 });

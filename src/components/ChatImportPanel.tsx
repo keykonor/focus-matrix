@@ -1,42 +1,66 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { chatTimeLabel, confirmChatEntry, type ChatEntry, type ChatPreview } from '../chatImport';
+import { chatTimeLabel, confirmChatEntry, planChatLayouts, type ChatEntry, type ChatLayout, type ChatLayouts, type ChatPreview } from '../chatImport';
 import { buildChatExtractionInput, previewChatEvents } from '../chatExtraction';
-import { memoPeriods, type MemoPeriod } from '../types';
+import { memoPeriods, type DailyMemos, type MemoPeriod } from '../types';
+import type { DailyMemoSchedules } from '../memoSchedule';
+import { chatImageLimits, unpackChatImages, validateChatImages } from '../chatImportImages';
 
 interface Props {
   date: string;
-  onImport: (entries: ChatEntry[]) => number;
+  memos: DailyMemos;
+  schedules?: DailyMemoSchedules;
+  onImport: (entries: ChatEntry[], modes: ChatLayouts) => number;
   onUndo?: () => number;
   onBack: () => void;
 }
 
 type NativeDrop = { id?: string; text?: string };
 const periodLabels: Record<MemoPeriod, string> = { morning: '早上', afternoon: '下午', evening: '晚上' };
+const layoutLabels: Record<ChatLayout, string> = { periods: '早上／下午／晚上', hourly: '24 小时' };
 
-export function ChatImportPanel({ date, onImport, onUndo, onBack }: Props) {
+export function ChatImportPanel({ date, memos, schedules, onImport, onUndo, onBack }: Props) {
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [preview, setPreview] = useState<(ChatPreview & { id: number })[]>([]);
+  const [layoutChoices, setLayoutChoices] = useState<ChatLayouts>({});
+  const [images, setImages] = useState<File[]>([]);
+  const imageQueue = useRef<File[]>([]);
   const zone = useRef<HTMLElement>(null);
   const picker = useRef<HTMLInputElement>(null);
   const processing = useRef(false);
   const mounted = useRef(false);
   const receiveDrop = useRef<(drop: NativeDrop) => void>(() => {});
+  const updateImages = (files: File[]) => {
+    imageQueue.current = files;
+    setImages(files);
+  };
 
   useLayoutEffect(() => {
     mounted.current = true;
     return () => { mounted.current = false; };
   }, []);
 
-  const extract = async (load: () => Promise<string>, recognizingImage = false) => {
+  const extract = async () => {
     if (processing.current) return;
     processing.current = true;
     setBusy(true);
-    setMessage(recognizingImage ? '正在本机识别截图…' : '正在用本地千问提取关键事项…');
+    setMessage(images.length ? '正在本机识别截图…' : '正在用本地千问提取关键事项…');
     try {
-      const source = await load();
+      let source = text;
+      const queued = imageQueue.current;
+      if (queued.length) {
+        const { readChatScreenshots } = await import('../chatOcr');
+        const recognized = await readChatScreenshots(queued, (current, total) => {
+          if (mounted.current) setMessage('正在识别截图 ' + current + '/' + total + '…');
+        });
+        if (!mounted.current) return;
+        source = [text.trim(), ...recognized.map((value, index) => '【截图 ' + (index + 1) + '】\n' + value)]
+          .filter(Boolean).join('\n\n');
+        if (source.length > 12_000) throw Error('本批文字和截图超过 12,000 字，请移除部分截图或缩短文字后重试。');
+        updateImages([]);
+      }
       if (!mounted.current) return;
       setText(source.slice(0, 12_000));
       setMessage('正在用本地千问提取关键事项…');
@@ -45,6 +69,7 @@ export function ChatImportPanel({ date, onImport, onUndo, onBack }: Props) {
       if (!mounted.current) return;
       const entries = previewChatEvents(output, source, date);
       setPreview(entries.map((entry, id) => ({ ...entry, id })));
+      setLayoutChoices({});
       setText('');
       setMessage(entries.length ? '已提取 ' + entries.length + ' 条关键事项，等待确认。' : '没有找到需要记录的事项。');
     } catch (cause) {
@@ -54,20 +79,40 @@ export function ChatImportPanel({ date, onImport, onUndo, onBack }: Props) {
       if (mounted.current) setBusy(false);
     }
   };
-  const submit = (value: string) => { void extract(async () => value); };
-  const importImage = (load: () => Promise<Blob>) => extract(async () => {
-    const { readChatScreenshot } = await import('../chatOcr');
-    return readChatScreenshot(await load());
-  }, true);
-
-  const importFiles = (files: File[]) => {
-    if (files.length !== 1) { setMessage('每次请选择一张截图。'); return; }
-    void importImage(async () => files[0]);
+  const addImages = (files: File[]) => {
+    try {
+      const batch = [...imageQueue.current, ...files];
+      validateChatImages(batch);
+      updateImages(batch);
+      setMessage('已添加 ' + batch.length + ' 张截图，等待提取。');
+    } catch (cause) {
+      setMessage(cause instanceof Error ? cause.message : '无法添加截图。');
+    }
+  };
+  const addText = (value: string) => {
+    if (processing.current || !value.trim()) return;
+    const next = [text.trim(), value.trim()].filter(Boolean).join('\n\n');
+    if (next.length > 12_000) { setMessage('每次最多导入 12,000 字，请分批添加。'); return; }
+    setText(next);
+  };
+  const readNativeDrop = async (id: string) => {
+    if (processing.current) return;
+    processing.current = true;
+    setBusy(true);
+    try {
+      const files = unpackChatImages(await invoke<ArrayBuffer>('take_chat_screenshots', { id }));
+      if (mounted.current) addImages(files);
+    } catch (cause) {
+      if (mounted.current) setMessage(typeof cause === 'string' ? cause : '无法读取拖入的截图。');
+    } finally {
+      processing.current = false;
+      if (mounted.current) setBusy(false);
+    }
   };
 
   receiveDrop.current = ({ id, text: value }) => {
-    if (id) void importImage(async () => new Blob([await invoke<ArrayBuffer>('take_chat_screenshot', { id })]));
-    else if (value) submit(value);
+    if (id) void readNativeDrop(id);
+    else if (value) addText(value);
   };
   useLayoutEffect(() => {
     const element = zone.current;
@@ -81,6 +126,8 @@ export function ChatImportPanel({ date, onImport, onUndo, onBack }: Props) {
     const confirmed = confirmChatEntry(entry);
     return confirmed ? [confirmed] : [];
   });
+  const plans = planChatLayouts(ready, schedules, memos);
+  const unresolved = Object.entries(plans).some(([date, plan]) => plan.conflict && !layoutChoices[date]);
   const patch = (id: number, changes: Partial<ChatPreview>) => setPreview(current =>
     current.map(entry => entry.id === id ? { ...entry, ...changes } : entry));
 
@@ -93,40 +140,50 @@ export function ChatImportPanel({ date, onImport, onUndo, onBack }: Props) {
       onDragOver={event => event.preventDefault()}
       onDrop={event => {
         event.preventDefault();
-        if (event.dataTransfer.files.length) importFiles(Array.from(event.dataTransfer.files));
-        else submit(event.dataTransfer.getData('text/plain'));
+        if (processing.current) return;
+        if (event.dataTransfer.files.length) addImages(Array.from(event.dataTransfer.files));
+        else addText(event.dataTransfer.getData('text/plain'));
       }}
       onPaste={event => {
+        if (processing.current) return;
         const files = Array.from(event.clipboardData.files);
-        if (files.length) { event.preventDefault(); importFiles(files); }
-        else if (!text.trim() && event.clipboardData.getData('text/plain').trim()) {
+        if (files.length) { event.preventDefault(); addImages(files); }
+        else if (!(event.target instanceof HTMLTextAreaElement) && event.clipboardData.getData('text/plain').trim()) {
           event.preventDefault();
-          submit(event.clipboardData.getData('text/plain'));
+          addText(event.clipboardData.getData('text/plain'));
         }
       }}>
-      <p>拖入或粘贴微信截图、聊天文字。用本地千问提取日期、时间、地点和准备事项，确认后写入日历。</p>
+      <p>可以混合添加聊天文字和最多 {chatImageLimits.count} 张截图，集中提取、预览和确认。</p>
       <textarea aria-label="聊天文字" placeholder="也可以在这里输入聊天文字…" rows={3} maxLength={12000} value={text}
         disabled={busy} onChange={event => setText(event.target.value)} />
       <div className="chat-import-actions">
         <button type="button" disabled={busy} onClick={() => picker.current?.click()}>选择截图</button>
-        <input ref={picker} type="file" hidden accept="image/png,image/jpeg,image/webp" onChange={event => {
+        <input ref={picker} type="file" hidden multiple accept="image/png,image/jpeg,image/webp" onChange={event => {
           const files = Array.from(event.currentTarget.files ?? []);
           event.currentTarget.value = '';
-          if (files.length) importFiles(files);
+          if (files.length) addImages(files);
         }} />
-        <button type="button" disabled={busy || !text.trim()} onClick={() => submit(text)}>提取并预览</button>
+        <button type="button" disabled={busy || (!text.trim() && !images.length)} onClick={() => void extract()}>提取并预览</button>
         {onUndo && <button type="button" disabled={busy} onClick={() => {
           const count = onUndo();
           setMessage('已撤销 ' + count + ' 条记录，编辑过的内容已保留。');
         }}>撤销本批</button>}
       </div>
+      {images.length > 0 && <ul className="chat-import-images" aria-label="待提取截图">
+        {images.map((file, index) => <li key={index}><span>{file.name}</span>
+          <button type="button" aria-label={'移除截图 ' + (index + 1)} disabled={busy}
+            onClick={() => updateImages(imageQueue.current.filter((_, position) => position !== index))}>移除</button></li>)}
+      </ul>}
       <p role="status">{message}</p>
     </section>
     {preview.length > 0 && <section className="chat-import-preview" aria-labelledby="chat-preview-heading">
       <h3 id="chat-preview-heading">导入预览</h3>
       <p>{preview.length} 条待确认{ready.length < preview.length ? '，请补齐日期和时段，或移除该条' : ''}</p>
       <ul>
-        {preview.map((entry, index) => <li key={entry.id}>
+        {preview.map((entry, index) => {
+          const key = entry.date ?? '';
+          const plan = plans[key];
+          return <li key={entry.id}>
           <input type="text" aria-label={'第 ' + (index + 1) + ' 条内容'} value={entry.text} maxLength={12000}
             onChange={event => patch(entry.id, { text: event.target.value })} />
           <div className="chat-preview-fields">
@@ -145,12 +202,32 @@ export function ChatImportPanel({ date, onImport, onUndo, onBack }: Props) {
             <button type="button" aria-label={'移除第 ' + (index + 1) + ' 条'} onClick={() =>
               setPreview(current => current.filter(item => item.id !== entry.id))}>移除</button>
           </div>
-        </li>)}
+          {plan?.conflict ? <div className="chat-layout-conflict">
+            <span>时间段布局冲突{plan.existing ? '，当天已有 ' + layoutLabels[plan.existing] + ' 布局' : '，同一天包含时段和具体时间'}</span>
+            <label>当天布局 <select value={layoutChoices[key] ?? ''} onChange={event => {
+              const mode = event.target.value;
+              setLayoutChoices(current => {
+                const next = { ...current };
+                if (mode === 'hourly' || mode === 'periods') next[key] = mode;
+                else delete next[key];
+                return next;
+              });
+            }}>
+              <option value="">选择当天布局</option>
+              <option value="periods">{layoutLabels.periods}</option>
+              <option value="hourly">{layoutLabels.hourly}</option>
+            </select></label>
+          </div> : plan && <p className="chat-layout-hint">当天布局 {layoutLabels[plan.suggested]}</p>}
+        </li>;
+        })}
       </ul>
       <div className="chat-import-actions">
-        <button type="button" disabled={busy || ready.length !== preview.length} onClick={() => {
-          const count = onImport(ready);
+        <button type="button" disabled={busy || unresolved || ready.length !== preview.length} onClick={() => {
+          const modes = Object.fromEntries(Object.entries(plans).map(([date, plan]) =>
+            [date, plan.conflict ? layoutChoices[date] : plan.suggested]));
+          const count = onImport(ready, modes);
           setPreview([]);
+          setLayoutChoices({});
           setMessage(count ? '已写入日历 ' + count + ' 条记录。' : '没有新增记录，相同事项已跳过。');
         }}>确认导入 {ready.length} 条</button>
       </div>
