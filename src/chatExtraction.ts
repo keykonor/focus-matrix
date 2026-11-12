@@ -67,6 +67,33 @@ function sourceClockTimes(source: string): Set<string> {
   return times;
 }
 
+const relativeDays = {
+  大前天: -3, 前天: -2, 昨天: -1, 昨晚: -1, 今天: 0, 今早: 0, 今晚: 0,
+  明天: 1, 明早: 1, 明晚: 1, 后天: 2, 大后天: 3,
+};
+const chatDateHeader = /^(\d{4})\s*[-/.年]\s*(\d{1,2})\s*[-/.月]\s*(\d{1,2})\s*日?(?:\s+\d{1,2}\s*:\s*\d{2})?$/;
+
+function relativeDateEvidence(source: string, reference: string) {
+  let base = reference;
+  return source.normalize('NFKC').split(/\r?\n/).flatMap(line => {
+    const header = line.trim().match(chatDateHeader);
+    if (header) {
+      const key = [header[1], header[2].padStart(2, '0'), header[3].padStart(2, '0')].join('-');
+      base = isDateKey(key) ? key : reference;
+      return [];
+    }
+    return line.split(/[。！？；!?;]/).filter(clause => clause.trim()).map(clause => {
+      const value = compact(clause);
+      const explicit = /(?:\d{1,2}月\d{1,2}|\d{1,2}[./-]\d{1,2}|\d{1,2}[日号]|(?:周|星期)[一二三四五六日天])/.test(value);
+      const tokens = value.match(/大前天|大后天|前天|昨天|昨晚|今天|今早|今晚|明天|明早|明晚|后天/g);
+      const token = !explicit && tokens?.length === 1 ? tokens[0] as keyof typeof relativeDays : undefined;
+      const day = dateFromKey(base);
+      const date = token ? localDateKey(new Date(day.getFullYear(), day.getMonth(), day.getDate() + relativeDays[token], 12)) : undefined;
+      return { date, explicit, times: sourceClockTimes(clause) };
+    });
+  });
+}
+
 function weekdayDeadlineDate(source: string, time: string, reference: string): string | undefined {
   const hints = [...source.matchAll(/(上|本|这|下下|下)?(?:周|星期)([一二三四五六日天])(?:早上|上午|中午|下午|晚上|凌晨)?(\d{1,2}:\d{2})(?:以前|之前|前)/g)]
     .filter(match => match[3].padStart(5, '0') === time &&
@@ -91,6 +118,7 @@ export function previewChatEvents(output: string, source: string, reference?: st
   }
   const original = compact(source);
   const sourceTimes = sourceClockTimes(source);
+  const relative = reference && isDateKey(reference) ? relativeDateEvidence(source, reference) : [];
   const events = result.events.slice(0, 24).filter((value): value is Record<string, unknown> =>
     Boolean(value && typeof value === 'object' && field(value.title, 150) &&
       (value.kind === 'event' || value.kind === 'deadline')));
@@ -110,7 +138,12 @@ export function previewChatEvents(output: string, source: string, reference?: st
     const deadline = event.kind === 'deadline';
     const proposedTime = clock(event.time);
     const time = proposedTime && sourceTimes.has(proposedTime) ? proposedTime : undefined;
-    const date = (deadline && time && reference && isDateKey(reference) ? weekdayDeadlineDate(original, time, reference) : undefined)
+    const matching = time ? relative.filter(hint => hint.times.has(time)) : [];
+    const relativeDate = matching.length === 1 ? matching[0].date :
+      !matching.length && events.length === 1 && !relative.some(hint => hint.explicit) && relative.filter(hint => hint.date).length === 1
+        ? relative.find(hint => hint.date)?.date : undefined;
+    const date = relativeDate
+      ?? (deadline && time && reference && isDateKey(reference) ? weekdayDeadlineDate(original, time, reference) : undefined)
       ?? (isDateKey(modelDate) ? modelDate : undefined);
     const proposedEnd = clock(event.end);
     const endTime = time && !deadline && proposedEnd && sourceTimes.has(proposedEnd) ? proposedEnd : undefined;

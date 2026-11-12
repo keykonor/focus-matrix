@@ -62,4 +62,26 @@ describe('local model chat extraction', () => {
     ] }), '11月19日下午一点半到五点开会。');
     expect(entry).toMatchObject({ hour: 13, minute: 30, endTime: '17:00' });
   });
+
+  it('corrects the reported wrong date for tomorrow evening', () => {
+    const [entry] = previewChatEvents(JSON.stringify({ events: [
+      { kind: 'deadline', title: '交 PPT', date: '2026-11-21', time: '20:00' },
+    ] }), '明天晚上8点叫ppt', '2026-11-13');
+    expect(entry).toMatchObject({ date: '2026-11-14', hour: 20 });
+  });
+
+  it('keeps an explicit date on a separate item in the same batch', () => {
+    const entries = previewChatEvents(JSON.stringify({ events: [
+      { kind: 'event', title: '交 PPT', date: '2026-11-21', time: '20:00' },
+      { kind: 'event', title: '开会', date: '2026-11-20', time: '19:00' },
+    ] }), '明天晚上8点交PPT。\n11月20日19:00开会。', '2026-11-13');
+    expect(entries.map(entry => entry.date)).toEqual(['2026-11-14', '2026-11-20']);
+  });
+
+  it('uses an explicit chat timestamp as the relative date base', () => {
+    const [entry] = previewChatEvents(JSON.stringify({ events: [
+      { kind: 'event', title: '开会', date: '2026-11-21', time: '20:00' },
+    ] }), '2026-12-31 09:15\n明晚8点开会', '2026-11-13');
+    expect(entry).toMatchObject({ date: '2027-01-01', hour: 20 });
+  });
 });
