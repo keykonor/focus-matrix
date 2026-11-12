@@ -21,6 +21,7 @@ import { changeMemo, localDateKey } from './calendarModel';
 import { useToday } from './hooks/useToday';
 import { changeTask, newTask } from './taskModel';
 import { changeDiary } from './diary';
+import { appendChatLine, removeChatLine, type ChatEntry } from './chatImport';
 import { hasPendingImages } from './taskImages';
 import { cloudTasks, retainLocalSubtasks } from './subtasks';
 import { openDataStore, saveData, type AppData, type LocalDataStore } from './storage';
@@ -115,7 +116,7 @@ export default function App() {
       if(!canEdit())return;
       const {id,text,x,y,name}=event.payload;
       const hit=document.elementFromPoint(x,y);
-      const row=hit?.closest<HTMLElement>('.task-item, .memo-section');
+      const row=hit?.closest<HTMLElement>('.task-item, .memo-section, .chat-import-zone');
       if(row){row.dispatchEvent(new CustomEvent('focus-matrix:file-drop',{detail:{id,text}}));return;}
       const quadrant=hit?.closest<HTMLElement>('.quadrant')?.dataset.quadrant as QuadrantType|undefined;
       if(!quadrant||!quadrants.includes(quadrant)){setSaveNotice('请将文件拖到任务、备忘录时段或四象限空白处');return;}
@@ -303,6 +304,56 @@ export default function App() {
   const onSettingsChange = (next: AppSettings) => {if(canEdit())setSettings(next);};
   const updateMemo = (date: string, period: MemoPeriod, text: string) => {if(canEdit())setDailyMemos((current) => changeMemo(current, date, period, text));};
   const updateDiary = (date: string, text: string) => { if (canEdit()) setDailyDiaries(current => changeDiary(current, date, text)); };
+
+  const importChat = (entries: ChatEntry[]) => {
+    if (!canEdit()) return { count: 0, undo: () => 0 };
+    const added: Array<ChatEntry & { previous: string; written: string }> = [];
+    const apply = <T extends ChatEntry,>(changes: T[], replace: (value: string, entry: T) => string) => {
+      if (!canEdit()) return 0;
+      const current = dataRef.current;
+      let memos = current.dailyMemos;
+      let diaries = current.dailyDiaries ?? {};
+      let schedules = current.dailyMemoSchedules;
+      let count = 0;
+      for (const entry of changes) {
+        const { date, period, hour } = entry;
+        if (hour !== undefined) {
+          const schedule = schedules?.[date] ?? defaultMemoSchedule;
+          const previous = schedule.notes[hour] ?? '';
+          const written = replace(previous, entry);
+          if (previous === written) continue;
+          const notes = { ...schedule.notes };
+          if (written) notes[hour] = written; else delete notes[hour];
+          const hours = schedule.hours.includes(hour) ? schedule.hours : [...schedule.hours, hour].sort((a, b) => a - b);
+          schedules = { ...schedules, [date]: { ...schedule, notes, hours } };
+        } else if (period) {
+          const previous = memos[date]?.[period] ?? '';
+          const written = replace(previous, entry);
+          if (previous === written) continue;
+          memos = changeMemo(memos, date, period, written);
+        } else {
+          const previous = diaries[date] ?? '';
+          const written = replace(previous, entry);
+          if (previous === written) continue;
+          diaries = changeDiary(diaries, date, written);
+        }
+        count++;
+      }
+      if (memos !== current.dailyMemos) setDailyMemos(memos);
+      if (diaries !== current.dailyDiaries) setDailyDiaries(diaries);
+      if (schedules !== current.dailyMemoSchedules) setDailyMemoSchedules(schedules);
+      return count;
+    };
+    const destinations = entries.map(entry => dataRef.current.dailyMemoSchedules?.[entry.date]?.mode === 'hourly'
+      ? entry : { ...entry, hour: undefined });
+    const count = apply(destinations, (previous, entry) => {
+      const written = appendChatLine(previous, entry.text);
+      if (written !== previous) added.push({ ...entry, previous, written });
+      return written;
+    });
+    return { count, undo: () => apply([...added].reverse(), (current, entry) =>
+      current === entry.written ? entry.previous : removeChatLine(current, entry.text)) };
+  };
   const toggleCalendar = () => {if(canEdit())setSettings((current) => ({ ...current, calendarOpen: !current.calendarOpen }));};
   const openHistory = async () => { await flushSave(); setHistoryOpen(true); };
   const saveVersion = async () => {
@@ -361,7 +412,7 @@ export default function App() {
     {settings.calendarOpen ? <CalendarPanel today={today} memos={dailyMemos} diaries={dailyDiaries}
       schedules={dailyMemoSchedules} onScheduleChange={(date: string, update: (current: MemoSchedule) => MemoSchedule) => {
         if (canEdit()) setDailyMemoSchedules(current => ({ ...current, [date]: update(current?.[date] ?? defaultMemoSchedule) }));
-      }} onDiaryChange={updateDiary} marks={syncMarks} onChange={updateMemo} /> : <main className="matrix" aria-label="艾森豪威尔任务矩阵">
+      }} onDiaryChange={updateDiary} marks={syncMarks} onChange={updateMemo} onChatImport={importChat} /> : <main className="matrix" aria-label="艾森豪威尔任务矩阵">
       {quadrants.map((quadrant) => <Quadrant key={quadrant} quadrant={quadrant} marks={syncMarks} tasks={tasks.filter((task) => task.quadrant === quadrant && (settings.showCompleted || !task.completed))} focusId={focusId} fontSize={settings.fontSize} onAdd={addTask} onChange={updateTask} onDelete={deleteTask} onMove={moveTask} />)}
     </main>}
     {settingsOpen && <SettingsModal settings={settings} onChange={onSettingsChange} onClose={() => setSettingsOpen(false)} />}

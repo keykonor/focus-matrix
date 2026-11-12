@@ -49,6 +49,25 @@ impl DropState {
 pub fn take_dropped_files(app:tauri::AppHandle,state:tauri::State<'_,DropState>,id:String)->Result<Vec<Document>,String>{
  import_files(&app.path().app_data_dir().map_err(|e|e.to_string())?,state.take(&id)?)
 }
+
+#[tauri::command]
+pub fn take_chat_screenshot(state: tauri::State<'_, DropState>, id: String) -> Result<tauri::ipc::Response, String> {
+    use std::io::Read;
+    const IMAGE_LIMIT: u64 = 10 * 1024 * 1024;
+    let paths = state.take(&id)?;
+    let [path] = paths.as_slice() else { return Err("每次请拖入一张截图".into()); };
+    let extension = path.extension().and_then(|value| value.to_str()).unwrap_or_default().to_ascii_lowercase();
+    if !["png", "jpg", "jpeg", "webp"].contains(&extension.as_str()) {
+        return Err("请选择 PNG、JPEG 或 WebP 截图".into());
+    }
+    let file = fs::File::open(path).map_err(|_| "无法读取截图")?;
+    let metadata = file.metadata().map_err(|_| "无法读取截图")?;
+    if !metadata.is_file() || metadata.len() > IMAGE_LIMIT { return Err("请选择不超过 10 MB 的截图".into()); }
+    let mut bytes = Vec::new();
+    file.take(IMAGE_LIMIT + 1).read_to_end(&mut bytes).map_err(|_| "无法读取截图")?;
+    if bytes.is_empty() || bytes.len() as u64 > IMAGE_LIMIT { return Err("截图为空或超过 10 MB".into()); }
+    Ok(tauri::ipc::Response::new(bytes))
+}
 #[cfg(windows)]
 #[link(name="user32")]
 unsafe extern "system" {

@@ -4,6 +4,8 @@ import { memoPeriods, type DailyMemos, type MemoPeriod } from '../types';
 import { defaultMemoSchedule, hourLabel, memoHours, type DailyMemoSchedules, type MemoSchedule } from '../memoSchedule';
 import {EditAnnotation} from './EditAnnotation';
 import { MemoField } from './MemoField';
+import { ChatImportPanel } from './ChatImportPanel';
+import type { ComponentProps } from 'react';
 import type {EditMark} from '../../cloud-site/lib/syncModel';
 
 const periodNames: Record<MemoPeriod, string> = { morning: '早上', afternoon: '下午', evening: '晚上' };
@@ -19,11 +21,13 @@ interface Props {
   onChange: (date: string, period: MemoPeriod, text: string) => void;
   onDiaryChange: (date: string, text: string) => void;
   onScheduleChange: (date: string, update: (current: MemoSchedule) => MemoSchedule) => void;
+  onChatImport: ComponentProps<typeof ChatImportPanel>['onImport'];
 }
 
-export function CalendarPanel({ today, memos, diaries, schedules, onDiaryChange, marks, onChange, onScheduleChange }: Props) {
+export function CalendarPanel({ today, memos, diaries, schedules, onDiaryChange, marks, onChange, onScheduleChange, onChatImport }: Props) {
   const [selectedDate, setSelectedDate] = useState(today);
   const [month, setMonth] = useState(today.slice(0, 7));
+  const [importOpen, setImportOpen] = useState(false);
   const [editingSchedule, setEditingSchedule] = useState<{ date: string; mode: MemoSchedule['mode']; hours: number[] }>();
   const previousToday = useRef(today);
   useEffect(() => {
@@ -51,6 +55,7 @@ export function CalendarPanel({ today, memos, diaries, schedules, onDiaryChange,
     else delete attachments[period];
     return { ...current, attachments };
   });
+  if (importOpen) return <ChatImportPanel date={selectedDate} onImport={onChatImport} onBack={() => setImportOpen(false)} />;
   return <main className="calendar-panel" aria-label="日期与每日备忘录">
     <aside className="calendar-sidebar" aria-label="月历">
       <div className="calendar-month-header">
@@ -80,10 +85,11 @@ export function CalendarPanel({ today, memos, diaries, schedules, onDiaryChange,
     <section className="daily-memos" aria-labelledby="memo-date-heading" data-selected-date={selectedDate}>
       <div className="memo-heading">
         <div><p className="memo-eyebrow">{selected.getFullYear()} · 每日备忘录</p><h2 id="memo-date-heading">{dateFormatter.format(selected)}</h2></div>
+        <div className="memo-heading-actions"><button type="button" className="memo-schedule-button" onClick={() => setImportOpen(true)}>从聊天导入</button>
         <button type="button" className="memo-schedule-button" aria-expanded={Boolean(draft)} aria-controls="memo-schedule-editor"
           onClick={() => setEditingSchedule(draft ? undefined : { date: selectedDate, mode: schedule.mode, hours: schedule.hours })}>
           编辑时间段
-        </button>
+        </button></div>
       </div>
       <div className="memo-save-hint"><span>自动保存</span><button type="button" className="today-button" onClick={() => selectDate(today)}>回到今天</button></div>
       {draft && <section className="memo-schedule-editor" id="memo-schedule-editor" aria-label="当日时间段设置">
