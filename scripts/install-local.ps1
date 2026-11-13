@@ -111,13 +111,17 @@ try {
     $newProcess = Start-Process -FilePath $installedExecutable -WindowStyle Hidden -PassThru
     $deadline = [DateTime]::UtcNow.AddSeconds(60)
     $verified = $false
+    $receiptPath = Join-Path $dataDirectory '.update-restored.json'
+    $sessionPath = Join-Path $dataDirectory '.update-session.json'
     while ([DateTime]::UtcNow -lt $deadline) {
-        $receiptPath = Join-Path $dataDirectory '.update-restored.json'
-        if (Test-Path -LiteralPath $receiptPath) {
-            $receipt = Read-UpdateJson $receiptPath
-            $session = Read-UpdateJson (Join-Path $dataDirectory '.update-session.json')
-            if ($receipt.nonce -eq $updateNonce -and $receipt.verified -and $receipt.pid -eq $newProcess.Id -and $session.phase -eq 'verified' -and $session.nonce -eq $updateNonce) { $verified=$true; break }
+        try {
+            $receipt = if (Test-Path -LiteralPath $receiptPath) { Read-UpdateJson $receiptPath } else { $null }
+            $session = Read-UpdateJson $sessionPath
+        } catch {
+            # A journal-backed write may temporarily lock or truncate either file.
+            $receipt = $null
         }
+        if ($null -ne $receipt -and $receipt.nonce -eq $updateNonce -and $receipt.verified -and $receipt.pid -eq $newProcess.Id -and $session.phase -eq 'verified' -and $session.nonce -eq $updateNonce) { $verified=$true; break }
         if ($newProcess.HasExited) { break }
         Start-Sleep -Milliseconds 200
     }
