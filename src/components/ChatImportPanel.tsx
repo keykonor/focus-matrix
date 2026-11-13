@@ -16,6 +16,7 @@ interface Props {
 }
 
 type NativeDrop = { id?: string; text?: string };
+type PreviewRow = ChatPreview & { id: number; timeMode: ChatLayout; clockInput?: string };
 const periodLabels: Record<MemoPeriod, string> = { morning: '早上', afternoon: '下午', evening: '晚上' };
 const layoutLabels: Record<ChatLayout, string> = { periods: '早上／下午／晚上', hourly: '24 小时' };
 
@@ -23,7 +24,7 @@ export function ChatImportPanel({ date, memos, schedules, onImport, onUndo, onBa
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
-  const [preview, setPreview] = useState<(ChatPreview & { id: number })[]>([]);
+  const [preview, setPreview] = useState<PreviewRow[]>([]);
   const [layoutChoices, setLayoutChoices] = useState<ChatLayouts>({});
   const [images, setImages] = useState<File[]>([]);
   const canExtract = !busy && (text.trim().length > 0 || images.length > 0);
@@ -69,7 +70,8 @@ export function ChatImportPanel({ date, memos, schedules, onImport, onUndo, onBa
       const output = await invoke<string>('extract_chat_events', { input });
       if (!mounted.current) return;
       const entries = previewChatEvents(output, source, date);
-      setPreview(entries.map((entry, id) => ({ ...entry, id })));
+      setPreview(entries.map((entry, id) => ({ ...entry, id,
+        timeMode: entry.hour === undefined ? 'periods' : 'hourly' })));
       setLayoutChoices({});
       setText('');
       setMessage(entries.length ? '已提取 ' + entries.length + ' 条关键事项，等待确认。' : '没有找到需要记录的事项。');
@@ -129,7 +131,7 @@ export function ChatImportPanel({ date, memos, schedules, onImport, onUndo, onBa
   });
   const plans = planChatLayouts(ready, schedules, memos);
   const unresolved = Object.entries(plans).some(([date, plan]) => plan.conflict && !layoutChoices[date]);
-  const patch = (id: number, changes: Partial<ChatPreview>) => setPreview(current =>
+  const patch = (id: number, changes: Partial<Omit<PreviewRow, 'id'>>) => setPreview(current =>
     current.map(entry => entry.id === id ? { ...entry, ...changes } : entry));
 
   return <main className="chat-import" aria-labelledby="chat-import-heading">
@@ -201,22 +203,41 @@ export function ChatImportPanel({ date, memos, schedules, onImport, onUndo, onBa
         {preview.map((entry, index) => {
           const key = entry.date ?? '';
           const plan = plans[key];
+          const timeMode = entry.timeMode;
+          const clock = entry.clockInput ?? (entry.hour === undefined ? '' : chatTimeLabel(entry.hour, entry.minute ?? 0));
           return <li key={entry.id}>
           <input type="text" aria-label={'第 ' + (index + 1) + ' 条内容'} value={entry.text} maxLength={12000}
             onChange={event => patch(entry.id, { text: event.target.value })} />
           <div className="chat-preview-fields">
             <label>日期 <input type="date" value={entry.date ?? ''} onChange={event =>
               patch(entry.id, { date: event.target.value || undefined })} /></label>
-            <label>时段 <select value={entry.hour !== undefined ? 'precise' : entry.period ?? ''} onChange={event => {
-              const period = memoPeriods.find(value => value === event.target.value);
-              patch(entry.id, { period, hour: undefined, minute: undefined, endTime: undefined });
+            <div className="chat-time-modes" role="group" aria-label="时段模式">
+              <button type="button" className="chat-button" aria-pressed={timeMode === 'periods'}
+                onClick={() => patch(entry.id, { timeMode: 'periods' })}>{layoutLabels.periods}</button>
+              <button type="button" className="chat-button" aria-pressed={timeMode === 'hourly'}
+                onClick={() => patch(entry.id, { timeMode: 'hourly' })}>{layoutLabels.hourly}</button>
+            </div>
+            {timeMode === 'periods' ? <label>时段 <select value={entry.period ?? ''} onChange={event => {
+              patch(entry.id, { period: memoPeriods.find(value => value === event.target.value) });
             }}>
               <option value="">选择时段</option>
-              {entry.hour !== undefined && <option value="precise">
-                {chatTimeLabel(entry.hour, entry.minute ?? 0)}{entry.endTime ? '–' + entry.endTime : entry.deadline ? ' 前' : ''}
-              </option>}
               {memoPeriods.map(period => <option key={period} value={period}>{periodLabels[period]}</option>)}
-            </select></label>
+            </select></label> : <label>{entry.deadline ? '截止时间' : '开始时间'}
+              <input className="chat-clock-input" type="text" placeholder="HH:mm" maxLength={5} value={clock}
+                aria-invalid={Boolean(clock && entry.hour === undefined)}
+                onChange={event => {
+                  const clockInput = event.target.value;
+                  const match = /^(\d|[01]\d|2[0-3]):([0-5]\d)$/.exec(clockInput);
+                  const hour = match ? Number(match[1]) : undefined;
+                  patch(entry.id, { clockInput, hour, minute: match ? Number(match[2]) : undefined });
+                }}
+                onBlur={() => {
+                  if (entry.hour !== undefined && entry.minute !== undefined) {
+                    patch(entry.id, { clockInput: chatTimeLabel(entry.hour, entry.minute) });
+                  }
+                }} />
+            </label>}
+            {timeMode === 'hourly' && entry.endTime && <span className="chat-time-end">至 {entry.endTime}</span>}
             <button type="button" className="chat-button chat-quiet" aria-label={'移除第 ' + (index + 1) + ' 条'} onClick={() =>
               setPreview(current => current.filter(item => item.id !== entry.id))}>移除</button>
           </div>

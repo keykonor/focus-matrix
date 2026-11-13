@@ -20,6 +20,7 @@ export interface ChatEntry {
 
 export interface ChatPreview {
   date?: string;
+  timeMode?: ChatLayout;
   period?: MemoPeriod;
   hour?: number;
   minute?: number;
@@ -32,14 +33,22 @@ export function chatTimeLabel(hour: number, minute: number): string {
   return [hour, minute].map(value => String(value).padStart(2, '0')).join(':');
 }
 
+export function chatPeriodForHour(hour: number): MemoPeriod {
+  return hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : 'evening';
+}
+
 export function confirmChatEntry(preview: ChatPreview): ChatEntry | undefined {
-  const { date, period, hour, minute, endTime, deadline, text } = preview;
+  const { date, period, hour, minute, endTime, deadline, text, timeMode } = preview;
   const value = text.trim();
-  if (!date || !isDateKey(date) || !period || !value) return;
-  if (hour === undefined || minute === undefined) return { date, period, text: value };
+  if (!date || !isDateKey(date) || !value) return;
+  if (timeMode === 'periods' || (!timeMode && (hour === undefined || minute === undefined))) {
+    return period ? { date, period, text: value } : undefined;
+  }
+  if (hour === undefined || minute === undefined || !Number.isInteger(hour) || !Number.isInteger(minute) ||
+      hour < 0 || hour > 23 || minute < 0 || minute > 59) return;
   const start = chatTimeLabel(hour, minute);
   const time = deadline ? start + ' 前' : endTime ? start + '–' + endTime : start;
-  return { date, period, hour, text: value.startsWith(time + ' ') ? value : time + ' ' + value };
+  return { date, period: chatPeriodForHour(hour), hour, text: value.startsWith(time + ' ') ? value : time + ' ' + value };
 }
 
 export function planChatLayouts(entries: ChatEntry[], schedules: DailyMemoSchedules | undefined, memos: DailyMemos): Record<string, ChatLayoutPlan> {

@@ -1,5 +1,5 @@
 import { dateFromKey, isDateKey, localDateKey } from './calendarModel';
-import { chatTimeLabel, type ChatPreview } from './chatImport';
+import { chatPeriodForHour, chatTimeLabel, type ChatPreview } from './chatImport';
 import { memoPeriods } from './types';
 
 const weekdays = '日一二三四五六';
@@ -32,6 +32,12 @@ function clock(value: unknown): string | undefined {
 
 function compact(value: string): string {
   return value.normalize('NFKC').replace(/\s+/g, '');
+}
+
+function taskDescription(value: unknown, limit: number): string {
+  return field(value, limit)
+    .split(/(?:^|[。；;·]|\s)\s*(?:分析|推理|推断|判断依据|日期依据|解释|说明)\s*[:：]/, 1)[0]
+    .trim().replace(/[。；;]+$/, '');
 }
 
 function spokenNumber(value: string): number {
@@ -72,6 +78,20 @@ const relativeDays = {
   明天: 1, 明早: 1, 明晚: 1, 后天: 2, 大后天: 3,
 };
 const chatDateHeader = /^(\d{4})\s*[-/.年]\s*(\d{1,2})\s*[-/.月]\s*(\d{1,2})\s*日?(?:\s+\d{1,2}\s*:\s*\d{2})?$/;
+
+function exactDurationDeadline(source: string) {
+  const match = source.normalize('NFKC').trim().match(
+    /^(\d{4})[-/.年](\d{1,2})[-/.月](\d{1,2})日?\s+(\d{1,2})\s*:\s*(\d{2})\s+(\d{1,5})\s*(小时|分钟)(?:之)?内[。.!！]?$/,
+  );
+  if (!match) return;
+  const [, year, month, day, hour, minute, amount, unit] = match;
+  const date = [year, month.padStart(2, '0'), day.padStart(2, '0')].join('-');
+  if (!isDateKey(date) || !clock(hour.padStart(2, '0') + ':' + minute) || Number(amount) === 0) return;
+  const start = dateFromKey(date);
+  start.setHours(Number(hour), Number(minute), 0, 0);
+  const end = new Date(start.getTime() + Number(amount) * (unit === '小时' ? 3_600_000 : 60_000));
+  return { date: localDateKey(end), time: chatTimeLabel(end.getHours(), end.getMinutes()) };
+}
 
 function relativeDateEvidence(source: string, reference: string) {
   let base = reference;
@@ -120,36 +140,43 @@ export function previewChatEvents(output: string, source: string, reference?: st
   const sourceTimes = sourceClockTimes(source);
   const relative = reference && isDateKey(reference) ? relativeDateEvidence(source, reference) : [];
   const events = result.events.slice(0, 24).filter((value): value is Record<string, unknown> =>
-    Boolean(value && typeof value === 'object' && field(value.title, 150) &&
+    Boolean(value && typeof value === 'object' && taskDescription(value.title, 150) &&
       (value.kind === 'event' || value.kind === 'deadline')));
+  const durationDeadline = events.length === 1 && events[0].kind === 'deadline' ? exactDurationDeadline(source) : undefined;
   const activity = events.find(event => event.kind === 'event');
   const formDeadline = events.find(event => event.kind === 'deadline' && /填表|表格|提交|报送/.test(field(event.title, 150)));
-  const activityPreparation = field(activity?.preparation, 360);
+  const activityPreparation = taskDescription(activity?.preparation, 360);
   // A single notice sometimes returns the form instructions on the activity and an empty deadline.
   const movePreparation = events.length === 2 && activity && formDeadline &&
-    !field(formDeadline.preparation, 360) && /填表|填[写报].{0,12}表/.test(activityPreparation);
+    !taskDescription(formDeadline.preparation, 360) && /填表|填[写报].{0,12}表/.test(activityPreparation);
   const previews: ChatPreview[] = [];
   for (const event of events) {
-    const title = field(event.title, 150);
+    let title = taskDescription(event.title, 150);
     const modelDate = field(event.date, 16);
     const location = field(event.location, 200);
     const address = field(event.address, 200);
-    const preparation = movePreparation ? (event === formDeadline ? activityPreparation : '') : field(event.preparation, 360);
+    let preparation = movePreparation ? (event === formDeadline ? activityPreparation : '') : taskDescription(event.preparation, 360);
+    const duration = compact(title).match(/^(\d+(?:\.\d+)?(?:小时|分钟|天))期限$/)?.[1];
+    if (duration && compact(preparation) === duration + '内完成') {
+      title = preparation;
+      preparation = '';
+    } else if (preparation && compact(title) === compact(preparation)) {
+      preparation = '';
+    }
     const deadline = event.kind === 'deadline';
     const proposedTime = clock(event.time);
-    const time = proposedTime && sourceTimes.has(proposedTime) ? proposedTime : undefined;
+    const time = durationDeadline?.time ?? (proposedTime && sourceTimes.has(proposedTime) ? proposedTime : undefined);
     const matching = time ? relative.filter(hint => hint.times.has(time)) : [];
     const relativeDate = matching.length === 1 ? matching[0].date :
       !matching.length && events.length === 1 && !relative.some(hint => hint.explicit) && relative.filter(hint => hint.date).length === 1
         ? relative.find(hint => hint.date)?.date : undefined;
-    const date = relativeDate
+    const date = durationDeadline?.date ?? relativeDate
       ?? (deadline && time && reference && isDateKey(reference) ? weekdayDeadlineDate(original, time, reference) : undefined)
       ?? (isDateKey(modelDate) ? modelDate : undefined);
     const proposedEnd = clock(event.end);
     const endTime = time && !deadline && proposedEnd && sourceTimes.has(proposedEnd) ? proposedEnd : undefined;
     const hour = time === undefined ? undefined : Number(time.slice(0, 2));
-    const period = hour === undefined ? memoPeriods.find(value => value === event.period) :
-      hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : 'evening';
+    const period = hour === undefined ? memoPeriods.find(value => value === event.period) : chatPeriodForHour(hour);
     const text = [title, location && '地点 ' + location, address && original.includes(compact(address)) && '地址 ' + address,
       preparation && '准备 ' + preparation].filter(Boolean).join(' · ');
     previews.push({ date, period, hour,

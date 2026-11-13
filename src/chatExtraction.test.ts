@@ -84,4 +84,26 @@ describe('local model chat extraction', () => {
     ] }), '2026-12-31 09:15\n明晚8点开会', '2026-11-13');
     expect(entry).toMatchObject({ date: '2027-01-01', hour: 20 });
   });
+
+  it('shows one short task description for a repeated generic deadline', () => {
+    const [entry] = previewChatEvents(JSON.stringify({ events: [
+      { kind: 'deadline', title: '72 小时期限', date: '2026-11-14', preparation: '72 小时内完成' },
+    ] }), '2026/11/11 09:36 72小时内');
+    expect(entry.text).toBe('72 小时内完成');
+  });
+
+  it('resolves an exact 72-hour deadline from an explicit chat timestamp', () => {
+    const [entry] = previewChatEvents(JSON.stringify({ events: [
+      { kind: 'deadline', title: '72 小时内完成', date: '', time: '', period: '' },
+    ] }), '2026/11/11 09:36 72小时内', '2026-11-13');
+    expect(entry).toMatchObject({ date: '2026-11-14', hour: 9, minute: 36, period: 'morning' });
+  });
+
+  it('drops analysis and duplicate preparation while retaining concrete task details', () => {
+    const [entry] = previewChatEvents(JSON.stringify({ events: [
+      { kind: 'event', title: '评审方案', date: '2026-11-14', location: '会议室',
+        preparation: '带纸质方案。推理：根据通知推算日期。' },
+    ] }), '11月14日到会议室评审方案，带纸质方案。');
+    expect(entry.text).toBe('评审方案 · 地点 会议室 · 准备 带纸质方案');
+  });
 });

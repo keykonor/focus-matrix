@@ -41,6 +41,11 @@ const interactionCheck = {
 Object.assign(window, { interactionCheck });
 mockWindows('main');
 mockIPC(async (command, payload) => {
+  if (command === 'extract_chat_events') {
+    const fixture = sessionStorage.getItem('chat-check-model-output');
+    if (!fixture) throw Error('Missing chat extraction fixture');
+    return fixture;
+  }
   if (command === 'save_task_document') return 'b'.repeat(64) + '.pdf';
   if (command === 'paste_task_documents') return [{ id:'c'.repeat(64)+'.pdf',name:'复制的文档.pdf' }];
   if (command === 'take_dropped_files') return [{id:'d'.repeat(64)+'.txt',name:'原生拖入.txt',kind:'document'}];

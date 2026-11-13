@@ -20,6 +20,25 @@ describe('chat import', () => {
     expect(removeChatLine('开会（已修改）', '开会')).toBe('开会（已修改）');
   });
 
+  it('uses the selected output mode without losing the draft clock time', () => {
+    const draft = { date: '2026-11-13', period: 'afternoon' as const, hour: 14, minute: 30,
+      endTime: '16:00', text: '开会' };
+    const period = confirmChatEntry({ ...draft, timeMode: 'periods' });
+    const hourly = confirmChatEntry({ ...draft, timeMode: 'hourly' });
+    expect(period).toEqual({ date: '2026-11-13', period: 'afternoon', text: '开会' });
+    expect(hourly).toEqual({ date: '2026-11-13', period: 'afternoon', hour: 14, text: '14:30–16:00 开会' });
+    expect(planChatLayouts([period!], undefined, {})['2026-11-13'].suggested).toBe('periods');
+  });
+
+  it('requires a valid clock time in 24-hour mode and derives the corresponding period', () => {
+    const draft = { date: '2026-11-13', timeMode: 'hourly' as const, text: '交材料', deadline: true };
+    expect(confirmChatEntry({ ...draft, period: 'afternoon' })).toBeUndefined();
+    expect(confirmChatEntry({ ...draft, hour: 24, minute: 0 })).toBeUndefined();
+    expect(confirmChatEntry({ ...draft, hour: 9, minute: 36 })).toEqual({
+      date: '2026-11-13', period: 'morning', hour: 9, text: '09:36 前 交材料',
+    });
+  });
+
   it('chooses a layout per date and reports both kinds of conflict', () => {
     const plans = planChatLayouts([
       { date: '2026-11-13', period: 'afternoon', text: '讨论' },

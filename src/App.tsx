@@ -359,7 +359,6 @@ export default function App() {
           else {
             schedules = { ...schedules };
             delete schedules[date];
-            if (!Object.keys(schedules).length && !hadSchedules) schedules = undefined;
           }
         }
       }
@@ -367,7 +366,6 @@ export default function App() {
       if (schedules !== current.dailyMemoSchedules) setDailyMemoSchedules(schedules);
       return count;
     };
-    const hadSchedules = dataRef.current.dailyMemoSchedules !== undefined;
     const destinations = entries.map(entry => modes[entry.date] === 'hourly'
       ? entry : { ...entry, hour: undefined });
     const count = apply(destinations, (previous, entry) => {

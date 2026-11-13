@@ -555,7 +555,7 @@ try {
     await reloadInteraction([], { calendarOpen: true });
     await wait("document.querySelector('.calendar-button[aria-label=\"切到四宫格\"]') && document.querySelector('.memo-schedule-button')");
     const date = await evaluate("document.querySelector('.daily-memos').dataset.selectedDate");
-    const openEditor = () => evaluate("(() => { const button = document.querySelector('.memo-schedule-button'); button.scrollIntoView({block:'nearest'}); button.click(); })()");
+    const openEditor = () => evaluate("(() => { const button = document.querySelector('[aria-controls=memo-schedule-editor]'); button.scrollIntoView({block:'nearest'}); button.click(); })()");
     const chooseMode = async mode => {
       const label = mode === 'hourly' ? '24 小时' : '早上／下午／晚上';
       await evaluate(`[...document.querySelectorAll('.memo-mode-picker button')].find(button => button.textContent === ${JSON.stringify(label)}).click()`);
@@ -621,6 +621,46 @@ try {
     await evaluate("document.querySelector('.image-overlay-close').click()");
     await evaluate("document.querySelector('.calendar-button').click()");
     await wait("document.querySelector('.matrix')");
+  });
+  await regression('chat preview supports both time modes and saves the selected one', async () => {
+    await reloadInteraction([], { calendarOpen: true });
+    await wait("document.querySelector('.memo-heading-actions .memo-schedule-button')");
+    await evaluate("document.querySelector('.memo-heading-actions .memo-schedule-button').click()");
+    const modelOutput = JSON.stringify({ events: [{ kind: 'deadline', title: '72 小时期限',
+      date: '', preparation: '72 小时内完成。推理：根据聊天日期推算。' }] });
+    await evaluate(`sessionStorage.setItem('chat-check-model-output', ${JSON.stringify(modelOutput)})`);
+    await attemptInput('.chat-import-zone textarea', '2026/10/16 09:36 72小时内');
+    await pressEnter();
+    await wait("document.querySelector('.chat-import-preview li > input')?.value === '72 小时内完成'");
+    assert.equal(await evaluate("document.querySelector('.chat-time-modes button[aria-pressed=true]').textContent"), '24 小时');
+    assert.equal(await evaluate("document.querySelector('.chat-clock-input').value"), '09:36');
+    await evaluate("document.querySelector('.chat-clock-input').focus(); document.querySelector('.chat-clock-input').select()");
+    await send('Input.insertText', { text: '24:00' });
+    await wait("document.querySelector('.chat-clock-input').getAttribute('aria-invalid') === 'true'");
+    assert.equal(await evaluate("document.querySelector('.chat-preview-actions .chat-primary').disabled"), true);
+    await evaluate("document.querySelector('.chat-clock-input').select()");
+    await send('Input.insertText', { text: '09:36' });
+    await wait("document.querySelector('.chat-preview-actions .chat-primary').disabled === false");
+    await evaluate("document.querySelector('.chat-time-modes button').click()");
+    await wait("document.querySelector('.chat-preview-fields select')");
+    assert.equal(await evaluate("document.querySelector('.chat-preview-fields select').value"), 'morning');
+    await evaluate("document.querySelectorAll('.chat-time-modes button')[1].click()");
+    await wait("document.querySelector('.chat-clock-input')?.value === '09:36'");
+    for (const width of [520, 720, 1200]) {
+      await send('Emulation.setDeviceMetricsOverride', { width, height: 620, deviceScaleFactor: 1, mobile: false });
+      assert.equal(await evaluate("document.querySelector('.chat-import').scrollWidth <= document.querySelector('.chat-import').clientWidth + 1"), true);
+    }
+    await evaluate("document.querySelector('.chat-preview-actions .chat-primary').click()");
+    await wait("JSON.parse(sessionStorage.getItem('calendar-check-data')).dailyMemoSchedules?.['2026-10-19']?.notes?.['9'] === '09:36 前 72 小时内完成'");
+    await evaluate("document.querySelector('.chat-preview-actions .chat-quiet').click()");
+    await wait("!JSON.parse(sessionStorage.getItem('calendar-check-data')).dailyMemoSchedules?.['2026-10-19']");
+    await attemptInput('.chat-import-zone textarea', '2026/10/16 09:36 72小时内');
+    await pressEnter();
+    await wait("document.querySelector('.chat-clock-input')?.value === '09:36'");
+    await evaluate("document.querySelector('.chat-time-modes button').click()");
+    await wait("document.querySelector('.chat-preview-fields select')?.value === 'morning'");
+    await evaluate("document.querySelector('.chat-preview-actions .chat-primary').click()");
+    await wait("JSON.parse(sessionStorage.getItem('calendar-check-data')).dailyMemos?.['2026-10-19']?.morning === '72 小时内完成'");
   });
   assert.deepEqual(errors, [], 'Browser exceptions or network failures');
   if (interactionFailures.length) throw new AggregateError(interactionFailures, 'Interaction preservation regressions failed');

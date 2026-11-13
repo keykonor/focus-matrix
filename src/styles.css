@@ -120,6 +120,11 @@
 }
 .chat-preview-fields label, .chat-layout-conflict label { display: grid; gap: 3px; min-width: 0; }
 .chat-preview-fields .chat-button { min-height: 29px; }
+.chat-time-modes { display: flex; flex-wrap: wrap; gap: 4px; max-width: 100%; }
+.chat-time-modes .chat-button[aria-pressed='true'] { background: #dceee2; border-color: #87af95; }
+.chat-clock-input { width: 7ch; }
+.chat-clock-input[aria-invalid='true'] { border-color: #ac624f; }
+.chat-time-end { padding-block-end: 6px; color: var(--chat-muted); }
 .chat-preview-actions { justify-content: space-between; }
 .chat-import-images { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; padding: 0; margin: 9px 0 0; }
 .chat-import-images li { display: flex; align-items: center; gap: 4px; min-width: 0; padding: 2px 4px 2px 7px; border-radius: 6px; background: #e8f3eb; font-size: 12px; }
