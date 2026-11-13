@@ -133,9 +133,10 @@ export function ChatImportPanel({ date, memos, schedules, onImport, onUndo, onBa
 
   return <main className="chat-import" aria-labelledby="chat-import-heading">
     <header className="chat-import-heading">
-      <div><h2 id="chat-import-heading">从聊天导入</h2><p>参考日期 {date}</p></div>
-      <button type="button" className="memo-schedule-button" onClick={onBack}>返回日历</button>
+      <div><h2 id="chat-import-heading">从聊天导入</h2><p>提取聊天里的日程和截止时间，确认后写入日历。</p></div>
+      <button type="button" className="chat-button chat-back" onClick={onBack}><span aria-hidden="true">←</span> 返回日历</button>
     </header>
+    <div className="chat-import-workspace">
     <section ref={zone} className="chat-import-zone" aria-label="聊天导入区"
       onDragOver={event => event.preventDefault()}
       onDrop={event => {
@@ -153,32 +154,43 @@ export function ChatImportPanel({ date, memos, schedules, onImport, onUndo, onBa
           addText(event.clipboardData.getData('text/plain'));
         }
       }}>
-      <p>可以混合添加聊天文字和最多 {chatImageLimits.count} 张截图，集中提取、预览和确认。</p>
-      <textarea aria-label="聊天文字" placeholder="也可以在这里输入聊天文字…" rows={3} maxLength={12000} value={text}
+      <div className="chat-section-heading">
+        <h3><label htmlFor="chat-source">聊天内容</label></h3>
+        <span className="chat-local">本机提取</span>
+      </div>
+      <p className="chat-help" id="chat-source-help">粘贴聊天文字，或拖入、粘贴最多 {chatImageLimits.count} 张截图。</p>
+      <textarea id="chat-source" aria-label="聊天文字" aria-describedby="chat-source-help" placeholder="例如：下周一下午两点开会，周五前交材料。" rows={4} maxLength={12000} value={text}
         disabled={busy} onChange={event => setText(event.target.value)} />
       <div className="chat-import-actions">
-        <button type="button" disabled={busy} onClick={() => picker.current?.click()}>选择截图</button>
+        <button type="button" className="chat-button" disabled={busy} onClick={() => picker.current?.click()}><span aria-hidden="true">＋</span> 选择截图</button>
         <input ref={picker} type="file" hidden multiple accept="image/png,image/jpeg,image/webp" onChange={event => {
           const files = Array.from(event.currentTarget.files ?? []);
           event.currentTarget.value = '';
           if (files.length) addImages(files);
         }} />
-        <button type="button" disabled={busy || (!text.trim() && !images.length)} onClick={() => void extract()}>提取并预览</button>
-        {onUndo && <button type="button" disabled={busy} onClick={() => {
-          const count = onUndo();
-          setMessage('已撤销 ' + count + ' 条记录，编辑过的内容已保留。');
-        }}>撤销本批</button>}
+        <button type="button" className="chat-button chat-primary" disabled={busy || (!text.trim() && !images.length)} onClick={() => void extract()}>提取并预览</button>
       </div>
       {images.length > 0 && <ul className="chat-import-images" aria-label="待提取截图">
         {images.map((file, index) => <li key={index}><span>{file.name}</span>
           <button type="button" aria-label={'移除截图 ' + (index + 1)} disabled={busy}
             onClick={() => updateImages(imageQueue.current.filter((_, position) => position !== index))}>移除</button></li>)}
       </ul>}
-      <p role="status">{message}</p>
+      <div className="chat-source-footer">
+        <p>参考日期 <time dateTime={date}>{date}</time></p>
+        <p role="status" className="chat-status" data-busy={busy}>{message}</p>
+      </div>
     </section>
-    {preview.length > 0 && <section className="chat-import-preview" aria-labelledby="chat-preview-heading">
-      <h3 id="chat-preview-heading">导入预览</h3>
-      <p>{preview.length} 条待确认{ready.length < preview.length ? '，请补齐日期和时段，或移除该条' : ''}</p>
+    <section className="chat-import-preview" aria-labelledby="chat-preview-heading">
+      <div className="chat-section-heading">
+        <h3 id="chat-preview-heading">导入预览</h3>
+        {preview.length > 0 && <span className="chat-count">{preview.length} 条待确认</span>}
+      </div>
+      {preview.length === 0 ? <div className="chat-empty">
+        <span className="chat-empty-mark" aria-hidden="true" />
+        <strong>暂无待确认事项</strong>
+        <p>提取后可在这里核对内容、日期和时段。</p>
+      </div> : <>
+      {ready.length < preview.length && <p className="chat-help">请补齐日期和时段，或移除该条。</p>}
       <ul>
         {preview.map((entry, index) => {
           const key = entry.date ?? '';
@@ -199,7 +211,7 @@ export function ChatImportPanel({ date, memos, schedules, onImport, onUndo, onBa
               </option>}
               {memoPeriods.map(period => <option key={period} value={period}>{periodLabels[period]}</option>)}
             </select></label>
-            <button type="button" aria-label={'移除第 ' + (index + 1) + ' 条'} onClick={() =>
+            <button type="button" className="chat-button chat-quiet" aria-label={'移除第 ' + (index + 1) + ' 条'} onClick={() =>
               setPreview(current => current.filter(item => item.id !== entry.id))}>移除</button>
           </div>
           {plan?.conflict ? <div className="chat-layout-conflict">
@@ -221,16 +233,22 @@ export function ChatImportPanel({ date, memos, schedules, onImport, onUndo, onBa
         </li>;
         })}
       </ul>
-      <div className="chat-import-actions">
-        <button type="button" disabled={busy || unresolved || ready.length !== preview.length} onClick={() => {
+      </>}
+      <div className="chat-import-actions chat-preview-actions">
+        {onUndo && <button type="button" className="chat-button chat-quiet" disabled={busy} onClick={() => {
+          const count = onUndo();
+          setMessage('已撤销 ' + count + ' 条记录，编辑过的内容已保留。');
+        }}>撤销本批</button>}
+        {preview.length > 0 && <button type="button" className="chat-button chat-primary" disabled={busy || unresolved || ready.length !== preview.length} onClick={() => {
           const modes = Object.fromEntries(Object.entries(plans).map(([date, plan]) =>
             [date, plan.conflict ? layoutChoices[date] : plan.suggested]));
           const count = onImport(ready, modes);
           setPreview([]);
           setLayoutChoices({});
           setMessage(count ? '已写入日历 ' + count + ' 条记录。' : '没有新增记录，相同事项已跳过。');
-        }}>确认导入 {ready.length} 条</button>
+        }}>确认导入 {ready.length} 条</button>}
       </div>
-    </section>}
+    </section>
+    </div>
   </main>;
 }
