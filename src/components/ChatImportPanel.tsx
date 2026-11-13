@@ -26,6 +26,7 @@ export function ChatImportPanel({ date, memos, schedules, onImport, onUndo, onBa
   const [preview, setPreview] = useState<(ChatPreview & { id: number })[]>([]);
   const [layoutChoices, setLayoutChoices] = useState<ChatLayouts>({});
   const [images, setImages] = useState<File[]>([]);
+  const canExtract = !busy && (text.trim().length > 0 || images.length > 0);
   const imageQueue = useRef<File[]>([]);
   const zone = useRef<HTMLElement>(null);
   const picker = useRef<HTMLInputElement>(null);
@@ -158,9 +159,14 @@ export function ChatImportPanel({ date, memos, schedules, onImport, onUndo, onBa
         <h3><label htmlFor="chat-source">聊天内容</label></h3>
         <span className="chat-local">本机提取</span>
       </div>
-      <p className="chat-help" id="chat-source-help">粘贴聊天文字，或拖入、粘贴最多 {chatImageLimits.count} 张截图。</p>
+      <p className="chat-help" id="chat-source-help">粘贴聊天文字，或拖入、粘贴最多 {chatImageLimits.count} 张截图。按 Enter 提取，Shift+Enter 换行。</p>
       <textarea id="chat-source" aria-label="聊天文字" aria-describedby="chat-source-help" placeholder="例如：下周一下午两点开会，周五前交材料。" rows={4} maxLength={12000} value={text}
-        disabled={busy} onChange={event => setText(event.target.value)} />
+        disabled={busy} onChange={event => setText(event.target.value)}
+        onKeyDown={event => {
+          if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
+          event.preventDefault();
+          if (canExtract && !event.repeat) void extract();
+        }} />
       <div className="chat-import-actions">
         <button type="button" className="chat-button" disabled={busy} onClick={() => picker.current?.click()}><span aria-hidden="true">＋</span> 选择截图</button>
         <input ref={picker} type="file" hidden multiple accept="image/png,image/jpeg,image/webp" onChange={event => {
@@ -168,7 +174,7 @@ export function ChatImportPanel({ date, memos, schedules, onImport, onUndo, onBa
           event.currentTarget.value = '';
           if (files.length) addImages(files);
         }} />
-        <button type="button" className="chat-button chat-primary" disabled={busy || (!text.trim() && !images.length)} onClick={() => void extract()}>提取并预览</button>
+        <button type="button" className="chat-button chat-primary" disabled={!canExtract} onClick={() => void extract()}>提取并预览</button>
       </div>
       {images.length > 0 && <ul className="chat-import-images" aria-label="待提取截图">
         {images.map((file, index) => <li key={index}><span>{file.name}</span>
