@@ -2,11 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import { dateFromKey, hasMemo, monthDays, shiftMonth } from '../calendarModel';
 import { memoPeriods, type DailyMemos, type MemoPeriod } from '../types';
 import { defaultMemoSchedule, hourLabel, memoHours, type DailyMemoSchedules, type MemoSchedule } from '../memoSchedule';
-import {EditAnnotation} from './EditAnnotation';
 import { MemoField } from './MemoField';
 import { ChatImportPanel } from './ChatImportPanel';
 import type { ComponentProps } from 'react';
-import type {EditMark} from '../../cloud-site/lib/syncModel';
 
 const periodNames: Record<MemoPeriod, string> = { morning: '早上', afternoon: '下午', evening: '晚上' };
 const weekdays = ['一', '二', '三', '四', '五', '六', '日'];
@@ -17,7 +15,6 @@ interface Props {
   memos: DailyMemos;
   diaries: Record<string,string>;
   schedules?: DailyMemoSchedules;
-  marks?:Record<string,EditMark>;
   onChange: (date: string, period: MemoPeriod, text: string) => void;
   onDiaryChange: (date: string, text: string) => void;
   onScheduleChange: (date: string, update: (current: MemoSchedule) => MemoSchedule) => void;
@@ -25,7 +22,7 @@ interface Props {
   onChatUndo?: () => number;
 }
 
-export function CalendarPanel({ today, memos, diaries, schedules, onDiaryChange, marks, onChange, onScheduleChange, onChatImport, onChatUndo }: Props) {
+export function CalendarPanel({ today, memos, diaries, schedules, onDiaryChange, onChange, onScheduleChange, onChatImport, onChatUndo }: Props) {
   const [selectedDate, setSelectedDate] = useState(today);
   const [month, setMonth] = useState(today.slice(0, 7));
   const [importOpen, setImportOpen] = useState(false);
@@ -136,7 +133,6 @@ export function CalendarPanel({ today, memos, diaries, schedules, onDiaryChange,
           attachments={schedule.attachments?.[period] ?? ''}
           onAttachmentsChange={update => updateAttachments(period, update)}
           onChange={text => onChange(selectedDate, period, text)} />
-        <EditAnnotation mark={marks?.[`memo:${selectedDate}:${period}`]} />
       </div>)}
     </section>
   </main>;

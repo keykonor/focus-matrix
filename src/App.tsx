@@ -443,8 +443,8 @@ export default function App() {
     {settings.calendarOpen ? <CalendarPanel today={today} memos={dailyMemos} diaries={dailyDiaries}
       schedules={dailyMemoSchedules} onScheduleChange={(date: string, update: (current: MemoSchedule) => MemoSchedule) => {
         if (canEdit()) setDailyMemoSchedules(current => ({ ...current, [date]: update(current?.[date] ?? defaultMemoSchedule) }));
-      }} onDiaryChange={updateDiary} marks={syncMarks} onChange={updateMemo} onChatImport={importChat} onChatUndo={undoChat} /> : <main className="matrix" aria-label="艾森豪威尔任务矩阵">
-      {quadrants.map((quadrant) => <Quadrant key={quadrant} quadrant={quadrant} marks={syncMarks} tasks={tasks.filter((task) => task.quadrant === quadrant && (settings.showCompleted || !task.completed))} focusId={focusId} fontSize={settings.fontSize} onAdd={addTask} onChange={updateTask} onDelete={deleteTask} onMove={moveTask} />)}
+      }} onDiaryChange={updateDiary} onChange={updateMemo} onChatImport={importChat} onChatUndo={undoChat} /> : <main className="matrix" aria-label="艾森豪威尔任务矩阵">
+      {quadrants.map((quadrant) => <Quadrant key={quadrant} quadrant={quadrant} tasks={tasks.filter((task) => task.quadrant === quadrant && (settings.showCompleted || !task.completed))} focusId={focusId} fontSize={settings.fontSize} onAdd={addTask} onChange={updateTask} onDelete={deleteTask} onMove={moveTask} />)}
     </main>}
     {settingsOpen && <SettingsModal settings={settings} onChange={onSettingsChange} onClose={() => setSettingsOpen(false)} />}
     {historyOpen && <HistoryModal onClose={() => setHistoryOpen(false)} onSaveVersion={saveVersion} onRestore={restoreVersion} />}

@@ -9,12 +9,9 @@ import { taskDocuments, withDocuments, type TaskDocument } from '../taskDocument
 import { SubtasksEditor } from './SubtasksEditor';
 import { newSubtask } from '../subtasks';
 import type { AppSettings, QuadrantType, Task } from '../types';
-import {EditAnnotation} from './EditAnnotation';
-import type {EditMark} from '../../cloud-site/lib/syncModel';
 
 interface Props {
   task: Task;
-  mark?: EditMark;
   focus: boolean;
   fontSize: AppSettings['fontSize'];
   onChange: (id: string, patch: Partial<Pick<Task, 'text' | 'completed' | 'subtasks'>>, commit?: boolean) => void;
@@ -23,7 +20,7 @@ interface Props {
   onMove: (id: string, quadrant: QuadrantType) => void;
 }
 
-export function TaskItem({ task, mark, focus, fontSize, onChange, onDelete, onEnter, onMove }: Props) {
+export function TaskItem({ task, focus, fontSize, onChange, onDelete, onEnter, onMove }: Props) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const taskRef = useRef(task); taskRef.current = task;
   const imagePending = useRef(false);
@@ -145,7 +142,7 @@ export function TaskItem({ task, mark, focus, fontSize, onChange, onDelete, onEn
       <SubtasksEditor focusId={subtaskFocus} items={task.subtasks ?? []} onChange={(subtasks, commit) => {
         taskRef.current = { ...taskRef.current, subtasks }; onChange(task.id, { subtasks }, commit);
       }} />
-      <EditAnnotation mark={mark}/></div>
+    </div>
     <button type="button" className="subtask-add-icon" aria-label="添加子任务" title="添加子任务" onMouseDown={event => event.preventDefault()} onClick={() => {
       const item = newSubtask(); const subtasks = [...(taskRef.current.subtasks ?? []), item];
       taskRef.current = { ...taskRef.current, subtasks }; onChange(task.id, { subtasks }); setSubtaskFocus(item.id);

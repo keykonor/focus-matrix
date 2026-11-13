@@ -520,11 +520,9 @@ button { cursor: pointer; }
   .range-control input { width: 72px; }
 }
 .edit-annotation { min-width:0;font-size:10px;color:#678274;line-height:1.5;overflow-wrap:anywhere; }
-.task-item > .edit-annotation { grid-column:3 / 4; }
 .edit-annotation summary { cursor:pointer; }
 .edit-annotation p { margin:5px 0;white-space:pre-wrap; }
 .edit-annotation mark { background:#e9dcae;color:#4c594a; }
-.daily-memos .edit-annotation { padding:0 28px 14px; }
 .phone-connection { margin:24px 0;padding-top:18px;border-top:1px solid #dce7df; }
 .phone-connection h3 { font-size:17px;margin:0 0 8px; }
 .phone-connection p { font-size:12px;color:#6b8374; }
