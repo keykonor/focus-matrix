@@ -81,6 +81,7 @@ fn session(root: &Path) -> Result<Option<Value>, String> {
     if path.exists() { read(&path).map(Some) } else { Ok(None) }
 }
 fn validate(value: &Value) -> Result<(), String> {
+    if let Some(agenda) = value.get("agenda") { crate::agenda::validate(agenda)?; }
     let object = value.as_object().ok_or("本地数据不是对象，停止写入")?;
     if object.contains_key("tasks") {
         let tasks = value["tasks"].as_array().ok_or("待办数据无法读取，停止写入")?;
@@ -123,7 +124,7 @@ fn commit(root: &Path, patch: Value) -> Result<(), String> {
     let before = current.clone();
     let updates = patch.as_object().ok_or("Invalid local patch")?;
     for (key, value) in updates {
-        if !["tasks", "settings", "dailyMemos", "dailyDiaries", "dailyMemoSchedules", "syncMarks", "completedTasks", "taskDay"].contains(&key.as_str()) {
+        if !["tasks", "settings", "dailyMemos", "dailyDiaries", "dailyMemoSchedules", "agenda", "syncMarks", "completedTasks", "taskDay"].contains(&key.as_str()) {
             return Err("Unsupported local data field".into());
         }
         if key == "settings" {

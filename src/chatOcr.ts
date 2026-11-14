@@ -29,15 +29,18 @@ async function prepareScreenshot(image: Blob): Promise<HTMLCanvasElement> {
   return canvas;
 }
 
-export async function readChatScreenshots(images: Blob[], progress: (current: number, total: number) => void): Promise<string[]> {
+export async function readChatScreenshots(images: Blob[], progress: (current: number, total: number) => void, signal?: AbortSignal): Promise<string[]> {
   let worker: Worker | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let fail: (error: Error) => void = () => {};
   let cancelled = false;
+  const abort = () => fail(Error('提取已取消。'));
   try {
     const failed = new Promise<never>((_, reject) => {
       fail = reject;
       timer = setTimeout(() => reject(Error('识别超时，请减少截图数量或裁剪后重试。')), 60_000 + images.length * 15_000);
+      signal?.addEventListener('abort', abort, { once: true });
+      if (signal?.aborted) abort();
     });
     const recognition = (async () => {
       worker = await createWorker(['chi_sim', 'eng'], OEM.LSTM_ONLY, {
@@ -62,6 +65,7 @@ export async function readChatScreenshots(images: Blob[], progress: (current: nu
     return await Promise.race([recognition, failed]);
   } finally {
     cancelled = true;
+    signal?.removeEventListener('abort', abort);
     clearTimeout(timer);
     await worker?.terminate();
   }

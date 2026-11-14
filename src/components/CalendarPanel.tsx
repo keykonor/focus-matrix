@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { dateFromKey, hasMemo, monthDays, shiftMonth } from '../calendarModel';
-import { memoPeriods, type DailyMemos, type MemoPeriod } from '../types';
+import { memoPeriods, type DailyMemos, type MemoPeriod, type Task } from '../types';
+import { agendaForDate, EMPTY_AGENDA, type AgendaData } from '../agenda';
+import { chatEntryFingerprint } from '../chatImport';
 import { defaultMemoSchedule, hourLabel, memoHours, type DailyMemoSchedules, type MemoSchedule } from '../memoSchedule';
 import { MemoField } from './MemoField';
 import { ChatImportPanel } from './ChatImportPanel';
+import { AgendaPanel } from './AgendaPanel';
 import type { ComponentProps } from 'react';
 
 const periodNames: Record<MemoPeriod, string> = { morning: '早上', afternoon: '下午', evening: '晚上' };
@@ -19,13 +22,23 @@ interface Props {
   onDiaryChange: (date: string, text: string) => void;
   onScheduleChange: (date: string, update: (current: MemoSchedule) => MemoSchedule) => void;
   onChatImport: ComponentProps<typeof ChatImportPanel>['onImport'];
-  onChatUndo?: () => number;
+  onChatUndo?: ComponentProps<typeof ChatImportPanel>['onUndo'];
+  agenda?: AgendaData;
+  tasks?: Task[];
+  onAgendaChange?: (next: AgendaData) => void;
+  onCreateAgendaTask?: (eventId: string) => void;
+  importOpen?: boolean;
+  onImportOpenChange?: (open: boolean) => void;
 }
 
-export function CalendarPanel({ today, memos, diaries, schedules, onDiaryChange, onChange, onScheduleChange, onChatImport, onChatUndo }: Props) {
+export function CalendarPanel({
+  today, memos, diaries, schedules, onDiaryChange, onChange, onScheduleChange, onChatImport, onChatUndo,
+  agenda = EMPTY_AGENDA, tasks = [], onAgendaChange, onCreateAgendaTask, importOpen, onImportOpenChange,
+}: Props) {
   const [selectedDate, setSelectedDate] = useState(today);
   const [month, setMonth] = useState(today.slice(0, 7));
-  const [importOpen, setImportOpen] = useState(false);
+  const [localImportOpen, setLocalImportOpen] = useState(false);
+  const setImportOpen = onImportOpenChange ?? setLocalImportOpen;
   const [editingSchedule, setEditingSchedule] = useState<{ date: string; mode: MemoSchedule['mode']; hours: number[] }>();
   const previousToday = useRef(today);
   useEffect(() => {
@@ -44,7 +57,7 @@ export function CalendarPanel({ today, memos, diaries, schedules, onDiaryChange,
   const draft = editingSchedule?.date === selectedDate ? editingSchedule : undefined;
   const hasRecords = (date: string) => hasMemo(memos[date]) || Boolean(diaries[date]) ||
     Object.values(schedules?.[date]?.notes ?? {}).some(text => text.trim()) ||
-    Object.values(schedules?.[date]?.attachments ?? {}).some(Boolean);
+    Object.values(schedules?.[date]?.attachments ?? {}).some(Boolean) || agendaForDate(agenda, date).length > 0;
   const hasPeriodRecords = hasMemo(memos[selectedDate]) || memoPeriods.some(period => schedule.attachments?.[period]);
   const updateAttachments = (period: string, update: (current: string) => string) => onScheduleChange(selectedDate, current => {
     const attachments = { ...current.attachments };
@@ -53,7 +66,8 @@ export function CalendarPanel({ today, memos, diaries, schedules, onDiaryChange,
     else delete attachments[period];
     return { ...current, attachments };
   });
-  if (importOpen) return <ChatImportPanel date={today} memos={memos} schedules={schedules}
+  if (importOpen ?? localImportOpen) return <ChatImportPanel date={today} memos={memos} schedules={schedules}
+    existingFingerprints={new Set(agenda.events.map(chatEntryFingerprint))}
     onImport={onChatImport} onUndo={onChatUndo} onBack={() => setImportOpen(false)} />;
   return <main className="calendar-panel" aria-label="日期与每日备忘录">
     <aside className="calendar-sidebar" aria-label="月历">
@@ -84,7 +98,7 @@ export function CalendarPanel({ today, memos, diaries, schedules, onDiaryChange,
     <section className="daily-memos" aria-labelledby="memo-date-heading" data-selected-date={selectedDate}>
       <div className="memo-heading">
         <div><p className="memo-eyebrow">{selected.getFullYear()} · 每日备忘录</p><h2 id="memo-date-heading">{dateFormatter.format(selected)}</h2></div>
-        <div className="memo-heading-actions"><button type="button" className="memo-schedule-button" onClick={() => setImportOpen(true)}>从聊天导入</button>
+        <div className="memo-heading-actions">{importOpen === undefined && <button type="button" className="memo-schedule-button" onClick={() => setImportOpen(true)}>从聊天导入</button>}
         <button type="button" className="memo-schedule-button" aria-expanded={Boolean(draft)} aria-controls="memo-schedule-editor"
           onClick={() => setEditingSchedule(draft ? undefined : { date: selectedDate, mode: schedule.mode, hours: schedule.hours })}>
           编辑时间段
@@ -122,6 +136,8 @@ export function CalendarPanel({ today, memos, diaries, schedules, onDiaryChange,
           }}>应用</button>
         </div>
       </section>}
+      {onAgendaChange && <AgendaPanel key={selectedDate} date={selectedDate} mode={schedule.mode} agenda={agenda} tasks={tasks}
+        onChange={onAgendaChange} onCreateTask={onCreateAgendaTask} />}
       {schedule.mode === 'hourly' && schedule.hours.map(hour => <MemoField key={`${selectedDate}-hour-${hour}`}
         period={`hour-${hour}`} label={hourLabel(hour)} text={schedule.notes[hour] ?? ''}
         attachments={schedule.attachments?.[`hour-${hour}`] ?? ''}

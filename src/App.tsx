@@ -9,8 +9,7 @@ import { SettingsModal } from './components/SettingsModal';
 import { TitleBar } from './components/TitleBar';
 import { CalendarPanel } from './components/CalendarPanel';
 import { defaultMemoSchedule, type DailyMemoSchedules, type MemoSchedule } from './memoSchedule';
-import { HistoryModal } from './components/HistoryModal';
-import { CompletedTasksModal } from './components/CompletedTasksModal';
+import { RecordsModal } from './components/RecordsModal';
 import { rolloverCompletedTasks, type CompletedTaskRecord } from './completedTasks';
 import { CloudShareModal } from './components/CloudShareModal';
 import { useCloudSharing, type CloudDelivery } from './hooks/useCloudSharing';
@@ -21,7 +20,8 @@ import { changeMemo, localDateKey } from './calendarModel';
 import { useToday } from './hooks/useToday';
 import { changeTask, newTask } from './taskModel';
 import { changeDiary } from './diary';
-import { appendChatLine, removeChatLine, type ChatEntry, type ChatLayouts } from './chatImport';
+import { type ChatEntry, type ChatLayouts } from './chatImport';
+import { EMPTY_AGENDA, importAgendaEntries, undoAgendaImport, dueReminders, type AgendaData } from './agenda';
 import { hasPendingImages } from './taskImages';
 import { cloudTasks, retainLocalSubtasks } from './subtasks';
 import { openDataStore, saveData, type AppData, type LocalDataStore } from './storage';
@@ -40,14 +40,17 @@ export default function App() {
   const [dailyMemos, setDailyMemos] = useState<DailyMemos>({});
   const [dailyDiaries, setDailyDiaries] = useState<Record<string,string>>({});
   const [dailyMemoSchedules, setDailyMemoSchedules] = useState<DailyMemoSchedules>();
-  const [chatUndo, setChatUndo] = useState<() => number>();
+  const [agenda, setAgenda] = useState<AgendaData>();
+  const [importOpen, setImportOpen] = useState(false);
+  const [savedRevision, setSavedRevision] = useState(0);
+  const remindersBusy = useRef(false);
+  const reminded = useRef(new Set<string>());
   const [completedTasks, setCompletedTasks] = useState<CompletedTaskRecord[]>([]);
   const [taskDay, setTaskDay] = useState('');
   const today = useToday();
   const [ready, setReady] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [completedOpen, setCompletedOpen] = useState(false);
   const [cloudOpen, setCloudOpen] = useState(false);
   const [cloudSection,setCloudSection] = useState<'share'|'phone'>('share');
   const [syncMarks,setSyncMarks] = useState<Record<string,EditMark>>({});
@@ -61,7 +64,7 @@ export default function App() {
   const storeRef = useRef<LocalDataStore | null>(null);
   const updatingRef = useRef(false);
   const rolloverGuard = useRef<string | null>(null);
-  const dataRef = useRef<AppData>({ tasks, settings, dailyMemos, dailyDiaries, dailyMemoSchedules, syncMarks, completedTasks, taskDay });
+  const dataRef = useRef<AppData>({ tasks, settings, dailyMemos, dailyDiaries, dailyMemoSchedules, agenda, syncMarks, completedTasks, taskDay });
   const saveQueue = useRef<Promise<void>>(Promise.resolve());
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const closingRef = useRef(false);
@@ -80,18 +83,25 @@ export default function App() {
   const protectInteraction = (event: SyntheticEvent) => {
     if (!canEdit()) { event.preventDefault(); event.stopPropagation(); }
   };
-  dataRef.current = { tasks, settings, dailyMemos, dailyDiaries, dailyMemoSchedules, syncMarks, completedTasks, taskDay };
+  dataRef.current = { tasks, settings, dailyMemos, dailyDiaries, dailyMemoSchedules, agenda, syncMarks, completedTasks, taskDay };
 
-  const flushSave = useCallback(async (forUpdate = false) => {
+  const flushSave = useCallback(async (forUpdate = false, commitTasks = true) => {
     if (restoringRef.current || (updatingRef.current && !forUpdate)) return false;
     if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null; }
     const store = storeRef.current;
     if (!store) return false;
     const current = dataRef.current;
-    const snapshot = forUpdate || rolloverGuard.current === localDateKey() ? current : rolloverCompletedTasks(current, localDateKey());
+    const snapshot = !commitTasks || forUpdate || rolloverGuard.current === localDateKey() ? current : rolloverCompletedTasks(current, localDateKey());
     const rollingOver = snapshot !== current;
     if (rollingOver) { restoringRef.current = true; refreshInteractionLock(); }
-    const next = saveQueue.current.catch(() => undefined).then(() => saveData(store, snapshot));
+    const next = saveQueue.current.catch(() => undefined).then(() => {
+      const saved = store.baseline;
+      // Look up committed tasks after earlier queued saves finish. Reusing the
+      // old baseline here could overwrite a task just submitted with Enter.
+      return saveData(store, commitTasks || !saved ? snapshot : {
+        ...snapshot, tasks: saved.tasks, completedTasks: saved.completedTasks, taskDay: saved.taskDay,
+      });
+    });
     saveQueue.current = next;
     try {
       await next;
@@ -101,15 +111,15 @@ export default function App() {
         const moved = current.tasks.length - snapshot.tasks.length;
         if (moved > 0) { setFocusId(null); setSaveNotice(`已将 ${moved} 项已完成任务移入仓库`); }
       }
-      setSaveError(false); return true;
+      setSaveError(false); setSavedRevision(value => value + 1); return true;
     }
     catch (error) { setSaveError(true); logError('自动保存失败', error); return false; }
     finally { if (rollingOver) { restoringRef.current = false; refreshInteractionLock(); } }
   }, [refreshInteractionLock]);
 
   const readContent = useCallback(() => {
-    const { tasks, dailyMemos, dailyDiaries, dailyMemoSchedules } = dataRef.current;
-    return { tasks, dailyMemos, dailyDiaries, dailyMemoSchedules };
+    const { tasks, dailyMemos, dailyDiaries, dailyMemoSchedules, agenda } = dataRef.current;
+    return { tasks, dailyMemos, dailyDiaries, dailyMemoSchedules, ...(agenda === undefined ? {} : { agenda }) };
   }, []);
   useEffect(()=>{
     let disposed=false;let unlisten:UnlistenFn|undefined;
@@ -147,13 +157,24 @@ export default function App() {
     const merged=mergeContent(delivery.sentContent,{tasks:current.tasks,dailyMemos:current.dailyMemos},
       {...delivery.snapshot.content,tasks:cloudTasks(delivery.snapshot.content.tasks)});
     merged.content.tasks=retainLocalSubtasks(current.tasks,merged.content.tasks);
-    const next={...current,...merged.content,syncMarks:delivery.snapshot.marks};
+    const priorTasks = new Map(current.tasks.map(task => [task.id, task.completed]));
+    const completionChanges = new Map(merged.content.tasks.filter(task =>
+      priorTasks.has(task.id) && priorTasks.get(task.id) !== task.completed,
+    ).map(task => [task.id, task.completed]));
+    const nextAgenda = completionChanges.size && current.agenda ? {
+      ...current.agenda,
+      events: current.agenda.events.map(event => {
+        const completed = event.taskId && (!event.repeat || event.repeat === 'none') ? completionChanges.get(event.taskId) : undefined;
+        return completed === undefined || completed === event.completed ? event : { ...event, completed, updatedAt: new Date().toISOString() };
+      }),
+    } : current.agenda;
+    const next={...current,...merged.content,agenda:nextAgenda,syncMarks:delivery.snapshot.marks};
     if(same(next,current))return;
     restoringRef.current=true;refreshInteractionLock();
     if(saveTimer.current){clearTimeout(saveTimer.current);saveTimer.current=null;}
     try {const store=storeRef.current;if(!store)throw Error('本地存储未就绪');
       const operation=saveQueue.current.catch(()=>undefined).then(()=>saveData(store,next));saveQueue.current=operation;await operation;
-      dataRef.current=next;setTasks(next.tasks);setDailyMemos(next.dailyMemos);setSyncMarks(next.syncMarks);setSaveError(false);
+      dataRef.current=next;setTasks(next.tasks);setDailyMemos(next.dailyMemos);setAgenda(next.agenda);setSyncMarks(next.syncMarks);setSaveError(false);
     }catch(error){setSaveError(true);throw error;}finally{restoringRef.current=false;refreshInteractionLock();}
   },[flushSave,canEdit,refreshInteractionLock,hasPendingTaskEdits]);
   const cloud=useCloudSharing(ready && !updating,{flush:flushSave,read:readSavedContent,apply:applyCloud,hasPendingEdits:hasPendingTaskEdits});
@@ -169,6 +190,7 @@ export default function App() {
       setDailyMemos(data.dailyMemos);
       setDailyDiaries(data.dailyDiaries ?? {});
       setDailyMemoSchedules(data.dailyMemoSchedules);
+      setAgenda(data.agenda);
       setSyncMarks(data.syncMarks??{});
       setCompletedTasks(data.completedTasks ?? []);
       setTaskDay(data.taskDay ?? '');
@@ -181,11 +203,11 @@ export default function App() {
     if (!ready || restoringRef.current) return;
     const baseline = storeRef.current?.baseline;
     if (baseline && same(settings, baseline.settings) && same(dailyMemos, baseline.dailyMemos) &&
-        same(dailyDiaries, baseline.dailyDiaries ?? {}) && same(dailyMemoSchedules, baseline.dailyMemoSchedules)) return;
+        same(dailyDiaries, baseline.dailyDiaries ?? {}) && same(dailyMemoSchedules, baseline.dailyMemoSchedules) && same(agenda, baseline.agenda)) return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => { void flushSave(); }, 400);
+    saveTimer.current = setTimeout(() => { void flushSave(false, false); }, 400);
     return () => { if (saveTimer.current) clearTimeout(saveTimer.current); };
-  }, [settings, dailyMemos, dailyDiaries, dailyMemoSchedules, ready, flushSave]);
+  }, [settings, dailyMemos, dailyDiaries, dailyMemoSchedules, agenda, ready, interactionLocked, savedRevision, flushSave]);
 
   useEffect(() => {
     if (taskSaveRequest > 0) void flushSave();
@@ -205,6 +227,43 @@ export default function App() {
     document.addEventListener('visibilitychange', checkDay);
     return () => { window.clearInterval(retry); window.removeEventListener('focus', checkDay); document.removeEventListener('visibilitychange', checkDay); };
   }, [today, ready, flushSave]);
+
+  useEffect(() => {
+    if (!ready) return;
+    const check = async () => {
+      if (!canEdit() || remindersBusy.current) return;
+      const saved = storeRef.current?.baseline?.agenda;
+      if (!saved) return;
+      remindersBusy.current = true;
+      try {
+        for (const due of dueReminders(saved, new Date())) {
+          if (!canEdit()) break;
+          const key = JSON.stringify(due.receipt);
+          if (reminded.current.has(key)) continue;
+          const current = dataRef.current.agenda;
+          // Never alert for a just-deleted, edited or completed event awaiting save.
+          if (!current || !same(current.events.find(event => event.id === due.event.id), saved.events.find(event => event.id === due.event.id))) continue;
+          try {
+            await invoke('notify_agenda', { title: 'Focus Matrix · 日程提醒', body: `${due.event.occurrenceDate} ${due.event.startTime} ${due.event.text}` });
+            reminded.current.add(key);
+            if (dataRef.current.agenda) {
+              dataRef.current.agenda = { ...dataRef.current.agenda, receipts: [...dataRef.current.agenda.receipts, due.receipt] };
+              setAgenda(value => value ? { ...value, receipts: [...value.receipts, due.receipt] } : value);
+            }
+            setSaveNotice(`日程提醒：${due.event.text}`);
+          } catch (error) {
+            setSaveNotice('日程提醒发送失败，请在 Windows 中检查通知设置；日程仍已保留');
+            logError('日程提醒失败', error);
+          }
+        }
+      } finally { remindersBusy.current = false; }
+    };
+    void check();
+    const timer = window.setInterval(() => void check(), 15_000);
+    const wake = () => void check();
+    window.addEventListener('focus', wake); document.addEventListener('visibilitychange', wake);
+    return () => { clearInterval(timer); window.removeEventListener('focus', wake); document.removeEventListener('visibilitychange', wake); };
+  }, [ready, canEdit, savedRevision]);
 
   useEffect(() => {
     if (!ready) return;
@@ -290,6 +349,8 @@ export default function App() {
   const updateTask = (id: string, patch: Partial<Pick<Task, 'text' | 'completed' | 'subtasks'>>, commit = false) => {
     if(!canEdit())return;
     setTasks(current => current.map(task => task.id === id ? changeTask(task, patch) : task));
+    if (patch.completed !== undefined) setAgenda(current => current ? { ...current, events: current.events.map(event =>
+      event.taskId === id && (!event.repeat || event.repeat === 'none') ? { ...event, completed: patch.completed!, updatedAt: new Date().toISOString() } : event) } : current);
     if (patch.completed !== undefined || commit) setTaskSaveRequest(request => request + 1);
   };
   const deleteTask = (id: string) => {
@@ -306,84 +367,80 @@ export default function App() {
   const updateMemo = (date: string, period: MemoPeriod, text: string) => {if(canEdit())setDailyMemos((current) => changeMemo(current, date, period, text));};
   const updateDiary = (date: string, text: string) => { if (canEdit()) setDailyDiaries(current => changeDiary(current, date, text)); };
 
-  const importChat = (entries: ChatEntry[], modes: ChatLayouts) => {
-    if (!canEdit()) return 0;
-    const added: Array<ChatEntry & { previous: string; written: string }> = [];
-    const revealed = new Map<string, { note: string; attachment?: string }>();
-    const changedModes = new Map<string, MemoSchedule | undefined>();
-    const apply = <T extends ChatEntry,>(changes: T[], replace: (value: string, entry: T) => string, undoing = false) => {
-      if (!canEdit()) return 0;
-      const current = dataRef.current;
-      let memos = current.dailyMemos;
-      let schedules = current.dailyMemoSchedules;
-      let count = 0;
-      for (const entry of changes) {
-        const { date, period, hour } = entry;
-        if (hour !== undefined) {
-          const schedule = schedules?.[date] ?? defaultMemoSchedule;
-          const previous = schedule.notes[hour] ?? '';
-          const written = replace(previous, entry);
-          if (previous === written) continue;
-          const notes = { ...schedule.notes };
-          if (written) notes[hour] = written; else delete notes[hour];
-          const slot = date + ':' + hour;
-          const attachment = schedule.attachments?.['hour-' + hour];
-          const originalSlot = revealed.get(slot);
-          let hours = schedule.hours;
-          if (!undoing && !hours.includes(hour)) {
-            revealed.set(slot, { note: previous, attachment });
-            hours = [...hours, hour].sort((a, b) => a - b);
-          } else if (undoing && originalSlot?.note === written && originalSlot.attachment === attachment && hours.length > 1) {
-            hours = hours.filter(value => value !== hour);
-          }
-          schedules = { ...schedules, [date]: { ...schedule, notes, hours } };
-        } else {
-          const previous = memos[date]?.[period] ?? '';
-          const written = replace(previous, entry);
-          if (previous === written) continue;
-          memos = changeMemo(memos, date, period, written);
-        }
-        const schedule = schedules?.[date] ?? defaultMemoSchedule;
-        if (!undoing && schedule.mode !== modes[date]) {
-          changedModes.set(date, current.dailyMemoSchedules?.[date]);
-          schedules = { ...schedules, [date]: { ...schedule, mode: modes[date] } };
-        }
-        count++;
-      }
-      if (undoing) {
-        for (const [date, prior] of changedModes) {
-          const schedule = schedules?.[date];
-          const original = prior ?? defaultMemoSchedule;
-          if (!schedule || schedule.mode !== modes[date] || !same({ ...schedule, mode: original.mode }, original)) continue;
-          if (prior) schedules = { ...schedules, [date]: prior };
-          else {
-            schedules = { ...schedules };
-            delete schedules[date];
-          }
-        }
-      }
-      if (memos !== current.dailyMemos) setDailyMemos(memos);
-      if (schedules !== current.dailyMemoSchedules) setDailyMemoSchedules(schedules);
-      return count;
-    };
-    const destinations = entries.map(entry => modes[entry.date] === 'hourly'
-      ? entry : { ...entry, hour: undefined });
-    const count = apply(destinations, (previous, entry) => {
-      const written = appendChatLine(previous, entry.text);
-      if (written !== previous) added.push({ ...entry, previous, written });
-      return written;
+  const commitAgenda = async (next: AppData) => {
+    const store = storeRef.current;
+    if (!store || !canEdit()) throw new Error('当前正在保存，请稍后重试。');
+    restoringRef.current = true; refreshInteractionLock();
+    if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null; }
+    const operation = saveQueue.current.catch(() => undefined).then(() => {
+      const saved = store.baseline;
+      return saveData(store, saved ? {
+        ...next, tasks: saved.tasks, taskDay: saved.taskDay, completedTasks: saved.completedTasks,
+      } : next);
     });
-    if (count) setChatUndo(() => () => apply([...added].reverse(), (current, entry) =>
-      current === entry.written ? entry.previous : removeChatLine(current, entry.text), true));
-    return count;
+    saveQueue.current = operation;
+    try {
+      await operation;
+      dataRef.current = next;
+      setAgenda(next.agenda); setDailyMemoSchedules(next.dailyMemoSchedules); setSaveError(false);
+    } catch (error) {
+      setSaveError(true); logError('日程批次保存失败', error);
+      throw new Error('写入失败，请检查本地存储后重试。');
+    } finally {
+      restoringRef.current = false; refreshInteractionLock();
+    }
   };
-  const undoChat = chatUndo && (() => {
-    if (!canEdit()) return 0;
-    const count = chatUndo();
-    setChatUndo(undefined);
-    return count;
+  const importChat = async (entries: ChatEntry[], modes: ChatLayouts) => {
+    if (!canEdit()) throw new Error('当前正在保存，请稍后重试。');
+    const current = dataRef.current;
+    const imported = importAgendaEntries(current.agenda ?? EMPTY_AGENDA, entries, new Date().toISOString(), () => crypto.randomUUID());
+    if (!imported.count) return 0;
+    let schedules = current.dailyMemoSchedules;
+    for (const [date, mode] of Object.entries(modes)) {
+      const before = schedules?.[date] ?? defaultMemoSchedule;
+      const hours = [...new Set([...before.hours, ...entries.filter(e => e.date === date && e.startTime).map(e => Number(e.startTime!.slice(0, 2)))])].sort((a, b) => a - b);
+      schedules = { ...schedules, [date]: { ...before, mode, hours } };
+    }
+    await commitAgenda({ ...current, agenda: imported.agenda, dailyMemoSchedules: schedules });
+    return imported.count;
+  };
+  const latestBatch = agenda?.batches.filter(batch => !batch.undoneAt).at(-1);
+  const undoChat = latestBatch && (async () => {
+    if (!canEdit()) throw new Error('当前正在保存，请稍后重试。');
+    const current = dataRef.current;
+    const result = undoAgendaImport(current.agenda ?? EMPTY_AGENDA, latestBatch.id, new Date().toISOString());
+    await commitAgenda({ ...current, agenda: result.agenda });
+    setSaveNotice(result.retained ? `已撤销 ${result.count} 条；${result.retained} 条已编辑或关联待办，已保留` : `已撤销 ${result.count} 条导入日程`);
+    return result.count;
   });
-  const toggleCalendar = () => {if(canEdit())setSettings((current) => ({ ...current, calendarOpen: !current.calendarOpen }));};
+  const changeAgenda = (next: AgendaData) => {
+    if (!canEdit()) return;
+    const current = dataRef.current;
+    const prior = new Map(current.agenda?.events.map(event => [event.id, event]));
+    const linked = new Map(next.events.filter(event =>
+      event.taskId && (!event.repeat || event.repeat === 'none') && prior.get(event.id)?.completed !== event.completed,
+    ).map(event => [event.taskId!, event]));
+    const changedTasks = current.tasks.map(task => {
+      const event = linked.get(task.id);
+      return event && event.completed !== task.completed ? changeTask(task, { completed: event.completed }) : task;
+    });
+    dataRef.current = { ...current, agenda: next, tasks: changedTasks };
+    setAgenda(next); setTasks(changedTasks);
+    if (!same(current.tasks, changedTasks)) setTaskSaveRequest(value => value + 1);
+  };
+  const createAgendaTask = (eventId: string) => {
+    if (!canEdit()) return;
+    const current = dataRef.current;
+    const event = current.agenda?.events.find(item => item.id === eventId);
+    if (!event || event.taskId) return;
+    const task = { ...newTask('important-not-urgent'), text: event.text, completed: event.completed };
+    const next = { ...current.agenda!, events: current.agenda!.events.map(item => item.id === eventId ? { ...item, taskId: task.id, updatedAt: new Date().toISOString() } : item) };
+    dataRef.current = { ...current, agenda: next, tasks: [...current.tasks, task] };
+    setAgenda(next); setTasks(dataRef.current.tasks); setTaskSaveRequest(value => value + 1);
+    setSaveNotice('已关联到“重要不紧急”待办，可在四宫格调整象限');
+  };
+  const openImport = () => { if (canEdit()) { setSettings(current => ({ ...current, calendarOpen: true })); setImportOpen(true); } };
+  const toggleCalendar = () => {if(canEdit()){setImportOpen(false);setSettings((current) => ({ ...current, calendarOpen: !current.calendarOpen }));}};
   const openHistory = async () => { await flushSave(); setHistoryOpen(true); };
   const saveVersion = async () => {
     if (hasPendingImages()) throw new Error('图片正在保存，请稍候');
@@ -416,8 +473,8 @@ export default function App() {
     const current = { ...dataRef.current };
     const restored = { ...current, ...restoreTaskContent(current, version.content) };
     const operation = saveQueue.current.catch(() => undefined).then(async () => {
-      const { tasks, dailyMemos, dailyDiaries, dailyMemoSchedules } = current;
-      await archiveContent({ tasks, dailyMemos, dailyDiaries, dailyMemoSchedules }, 'before-restore');
+      const { tasks, dailyMemos, dailyDiaries, dailyMemoSchedules, agenda } = current;
+      await archiveContent({ tasks, dailyMemos, dailyDiaries, dailyMemoSchedules, ...(agenda === undefined ? {} : { agenda }) }, 'before-restore');
       await saveData(store, restored);
     });
     saveQueue.current = operation;
@@ -429,7 +486,13 @@ export default function App() {
     finally { restoringRef.current = false; refreshInteractionLock(); }
   };
 
-  return <div className={`app font-${settings.fontSize}`} aria-busy={interactionLocked} style={{ '--surface-alpha': settings.opacity / 100 } as CSSProperties}>
+  const saved = storeRef.current?.baseline;
+  const localSaveState = saveError ? '本地保存失败' : !ready ? '正在读取本地数据' : hasPendingTaskEdits()
+    ? '有未提交内容 · 回车或保存' : !saved || !same(saved.agenda, agenda) || !same(saved.settings, settings)
+      || !same(saved.dailyMemos, dailyMemos) || !same(saved.dailyDiaries ?? {}, dailyDiaries)
+      || !same(saved.dailyMemoSchedules, dailyMemoSchedules) ? '正在保存本地数据' : '本地已保存';
+
+  return <div className={`app font-${settings.fontSize} theme-${settings.theme ?? 'classic'} density-${settings.density ?? 'comfortable'}`} aria-busy={interactionLocked} style={{ '--surface-alpha': settings.opacity / 100 } as CSSProperties}>
     {saveNotice && <div className="save-notice" role="status">{saveNotice}</div>}
     {updating && <div className="save-error" role="status">正在保存当前完整版本并准备更新，请稍候…</div>}
     {saveError && <div className="save-error" role="alert">本地读取或保存失败，原文件和备份仍保留。请检查磁盘空间、文件权限或从更新备份恢复。</div>}
@@ -437,16 +500,15 @@ export default function App() {
       onBeforeInputCapture={protectInteraction} onInputCapture={protectInteraction} onChangeCapture={protectInteraction}
       onClickCapture={protectInteraction} onKeyDownCapture={protectInteraction} onDragStartCapture={protectInteraction} onDropCapture={protectInteraction}>
     <TitleBar onSettings={() => setSettingsOpen(true)} taskCount={tasks.filter((task) => !task.completed).length}
-      today={today} calendarOpen={settings.calendarOpen} onCalendar={toggleCalendar} onCompleted={() => setCompletedOpen(true)} onSave={() => void saveFromMain()} saving={savingVersion} onHistory={() => void openHistory()} onCloud={() => {setCloudSection('share');setCloudOpen(true);}} onPhone={() => {setCloudSection('phone');setCloudOpen(true);}} cloudError={!!cloud.status.error} disabled={interactionLocked} />
-    {settings.calendarOpen ? <CalendarPanel today={today} memos={dailyMemos} diaries={dailyDiaries}
+      today={today} calendarOpen={settings.calendarOpen} onCalendar={toggleCalendar} onImport={openImport} onSave={() => void saveFromMain()} saving={savingVersion} onHistory={() => void openHistory()} onCloud={() => {setCloudSection('share');setCloudOpen(true);}} onPhone={() => {setCloudSection('phone');setCloudOpen(true);}} saveState={localSaveState} syncState={cloud.busy ? '正在同步' : cloud.status.error ? '云端待重试' : cloud.status.connectionState === 'connected' ? '云端已连接' : '本机使用'} cloudError={!!cloud.status.error} disabled={interactionLocked} />
+    {settings.calendarOpen ? <CalendarPanel today={today} memos={dailyMemos} diaries={dailyDiaries} agenda={agenda} tasks={tasks} onAgendaChange={changeAgenda} onCreateAgendaTask={createAgendaTask} importOpen={importOpen} onImportOpenChange={setImportOpen}
       schedules={dailyMemoSchedules} onScheduleChange={(date: string, update: (current: MemoSchedule) => MemoSchedule) => {
         if (canEdit()) setDailyMemoSchedules(current => ({ ...current, [date]: update(current?.[date] ?? defaultMemoSchedule) }));
       }} onDiaryChange={updateDiary} onChange={updateMemo} onChatImport={importChat} onChatUndo={undoChat} /> : <main className="matrix" aria-label="艾森豪威尔任务矩阵">
       {quadrants.map((quadrant) => <Quadrant key={quadrant} quadrant={quadrant} tasks={tasks.filter((task) => task.quadrant === quadrant && (settings.showCompleted || !task.completed))} focusId={focusId} fontSize={settings.fontSize} onAdd={addTask} onChange={updateTask} onDelete={deleteTask} onMove={moveTask} />)}
     </main>}
-    {settingsOpen && <SettingsModal settings={settings} onChange={onSettingsChange} onClose={() => setSettingsOpen(false)} />}
-    {historyOpen && <HistoryModal onClose={() => setHistoryOpen(false)} onSaveVersion={saveVersion} onRestore={restoreVersion} />}
-    {completedOpen && <CompletedTasksModal records={completedTasks} onClose={() => setCompletedOpen(false)} />}
+    {settingsOpen && <SettingsModal settings={settings} onChange={onSettingsChange} onClose={() => setSettingsOpen(false)} onRecords={() => {setSettingsOpen(false); void openHistory();}} onCloud={() => {setSettingsOpen(false); setCloudOpen(true);}} onImport={() => {setSettingsOpen(false); openImport();}} />}
+    {historyOpen && <RecordsModal records={completedTasks} onClose={() => setHistoryOpen(false)} onSaveVersion={saveVersion} onRestore={restoreVersion} />}
     {cloudOpen && <CloudShareModal initialSection={cloudSection} status={cloud.status} busy={cloud.busy} onClose={() => setCloudOpen(false)} onSync={cloud.sync} onToggle={cloud.toggle} onEditing={cloud.editing} onRotate={cloud.rotate} />}
     </div>
   </div>;

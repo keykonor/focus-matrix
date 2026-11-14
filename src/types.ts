@@ -28,6 +28,8 @@ export interface AppSettings {
   opacity: number;
   showCompleted: boolean;
   calendarOpen: boolean;
+  theme?: 'classic' | 'warm-gray' | 'light';
+  density?: 'comfortable' | 'compact';
 }
 
 export const memoPeriods = ['morning', 'afternoon', 'evening'] as const;
@@ -49,6 +51,8 @@ export const defaultSettings: AppSettings = {
   opacity: 90,
   showCompleted: true,
   calendarOpen: false,
+  theme: 'classic',
+  density: 'comfortable',
 };
 
 export const quadrantNames: Record<QuadrantType, string> = {

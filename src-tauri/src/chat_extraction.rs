@@ -1,12 +1,13 @@
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::{path::PathBuf, time::Duration};
+use std::{path::PathBuf, sync::Mutex, time::Duration};
 
 const DEFAULT_OLLAMA: &str = "http://127.0.0.1:11434";
 const FOCUS_OLLAMA: &str = "http://127.0.0.1:11435";
 const MODEL: &str = "qwen3.5:4b-q4_K_M";
 const PROMPT: &str = include_str!("chat_extraction_prompt.txt");
 static EXTRACTION: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
+static ACTIVE_REQUEST: Mutex<Option<(String, tokio::task::AbortHandle)>> = Mutex::new(None);
 
 #[derive(Deserialize)]
 struct ChatResponse {
@@ -58,11 +59,45 @@ async fn ollama_endpoint(client: &reqwest::Client) -> Result<&'static str, Strin
 }
 
 #[tauri::command]
-pub async fn extract_chat_events(input: String) -> Result<String, String> {
+pub async fn cancel_chat_extraction(request_id: String) {
+    let cancelled = ACTIVE_REQUEST.lock().ok().is_some_and(|active| {
+        if let Some((_, handle)) = active.as_ref().filter(|(id, _)| id == &request_id) {
+            handle.abort();
+            true
+        } else {
+            false
+        }
+    });
+    if cancelled {
+        let _permit = EXTRACTION.acquire().await;
+    }
+}
+
+#[tauri::command]
+pub async fn extract_chat_events(input: String, request_id: Option<String>) -> Result<String, String> {
     if input.trim().is_empty() || input.len() > 100_000 {
         return Err("聊天内容为空或过长，请分批提取。".into());
     }
-    let _permit = EXTRACTION.try_acquire().map_err(|_| "本地模型正在处理上一批，请稍候。")?;
+    let task = {
+        let mut active = ACTIVE_REQUEST.lock().map_err(|_| "本地模型状态不可用。")?;
+        let permit = EXTRACTION.try_acquire().map_err(|_| "本地模型正在处理上一批，请稍候。")?;
+        let task = tokio::spawn(async move {
+            let _permit = permit;
+            request_events(input).await
+        });
+        *active = request_id.as_ref().map(|id| (id.clone(), task.abort_handle()));
+        task
+    };
+    let result = task.await;
+    if let Ok(mut active) = ACTIVE_REQUEST.lock() {
+        if active.as_ref().is_some_and(|(id, _)| Some(id) == request_id.as_ref()) {
+            *active = None;
+        }
+    }
+    result.map_err(|_| "提取已取消。")?
+}
+
+async fn request_events(input: String) -> Result<String, String> {
     let client = reqwest::Client::builder().no_proxy().redirect(reqwest::redirect::Policy::none())
         .connect_timeout(Duration::from_secs(3)).timeout(Duration::from_secs(240))
         .build().map_err(|_| "无法创建本地模型连接。")?;
@@ -70,7 +105,7 @@ pub async fn extract_chat_events(input: String) -> Result<String, String> {
     let endpoint = ollama_endpoint(&client).await?;
     #[cfg(not(windows))]
     let endpoint = DEFAULT_OLLAMA;
-    let schema: Value = serde_json::from_str(include_str!("chat_extraction_schema.json"))
+    let schema: Value = serde_json::from_str(include_str!("chat_extraction_schema.json").trim_start_matches('\u{feff}'))
         .map_err(|_| "本地事项格式不可用。")?;
     let response = client.post(format!("{endpoint}/api/chat")).json(&json!({
         "model": MODEL,

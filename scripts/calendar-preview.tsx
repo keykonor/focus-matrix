@@ -37,14 +37,25 @@ const interactionCheck = {
   syncContents: [] as unknown[],
   documentOpens: [] as string[],
   linkOpens: [] as string[],
+  cancelledChatRequests: [] as string[],
+  chatInputs: [] as unknown[],
+  notifications: [] as unknown[],
 };
 Object.assign(window, { interactionCheck });
 mockWindows('main');
 mockIPC(async (command, payload) => {
   if (command === 'extract_chat_events') {
+    interactionCheck.chatInputs.push(structuredClone(payload));
+    if (paused.has(command)) await new Promise<void>((resolve, reject) => {
+      waiting.set(command, [...(waiting.get(command) ?? []), { resolve, reject }]);
+    });
     const fixture = sessionStorage.getItem('chat-check-model-output');
     if (!fixture) throw Error('Missing chat extraction fixture');
     return fixture;
+  }
+  if (command === 'cancel_chat_extraction') {
+    interactionCheck.cancelledChatRequests.push(String(payload?.requestId));
+    return;
   }
   if (command === 'save_task_document') return 'b'.repeat(64) + '.pdf';
   if (command === 'paste_task_documents') return [{ id:'c'.repeat(64)+'.pdf',name:'复制的文档.pdf' }];
@@ -52,6 +63,7 @@ mockIPC(async (command, payload) => {
   if (command === 'open_task_document') { interactionCheck.documentOpens.push(String(payload?.id)); return; }
   if (command === 'open_task_link') { interactionCheck.linkOpens.push(String(payload?.url)); return; }
   if (command === 'sync_cloud') interactionCheck.syncContents.push(structuredClone(payload?.content));
+  if (command === 'notify_agenda') interactionCheck.notifications.push(structuredClone(payload));
   if (paused.has(command)) await new Promise<void>((resolve, reject) => {
     waiting.set(command, [...(waiting.get(command) ?? []), { resolve, reject }]);
   });

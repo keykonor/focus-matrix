@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { appendChatLine, confirmChatEntry, planChatLayouts, removeChatLine } from './chatImport';
+import { appendChatLine, chatEntryFingerprint, confirmChatEntry, planChatLayouts, removeChatLine } from './chatImport';
 import { defaultMemoSchedule } from './memoSchedule';
 
 describe('chat import', () => {
@@ -7,7 +7,7 @@ describe('chat import', () => {
     expect(confirmChatEntry({ date: '2026-11-13', text: '待安排' })).toBeUndefined();
     expect(confirmChatEntry({ date: '2026-02-30', period: 'afternoon', text: '日期无效' })).toBeUndefined();
     expect(confirmChatEntry({ date: '2026-11-13', period: 'afternoon', hour: 15, minute: 30, text: '开会' })).toEqual({
-      date: '2026-11-13', period: 'afternoon', hour: 15, text: '15:30 开会',
+      date: '2026-11-13', period: 'afternoon', hour: 15, text: '15:30 开会', description: '开会', startTime: '15:30',
     });
   });
 
@@ -25,8 +25,11 @@ describe('chat import', () => {
       endTime: '16:00', text: '开会' };
     const period = confirmChatEntry({ ...draft, timeMode: 'periods' });
     const hourly = confirmChatEntry({ ...draft, timeMode: 'hourly' });
-    expect(period).toEqual({ date: '2026-11-13', period: 'afternoon', text: '开会' });
-    expect(hourly).toEqual({ date: '2026-11-13', period: 'afternoon', hour: 14, text: '14:30–16:00 开会' });
+    expect(period).toEqual({ date: '2026-11-13', period: 'afternoon', text: '开会',
+      description: '开会', startTime: '14:30', endTime: '16:00' });
+    expect(hourly).toEqual({ date: '2026-11-13', period: 'afternoon', hour: 14, text: '14:30–16:00 开会',
+      description: '开会', startTime: '14:30', endTime: '16:00' });
+    expect(chatEntryFingerprint(period!)).toBe(chatEntryFingerprint(hourly!));
     expect(planChatLayouts([period!], undefined, {})['2026-11-13'].suggested).toBe('periods');
   });
 
@@ -36,6 +39,7 @@ describe('chat import', () => {
     expect(confirmChatEntry({ ...draft, hour: 24, minute: 0 })).toBeUndefined();
     expect(confirmChatEntry({ ...draft, hour: 9, minute: 36 })).toEqual({
       date: '2026-11-13', period: 'morning', hour: 9, text: '09:36 前 交材料',
+      description: '交材料', startTime: '09:36', deadline: true,
     });
   });
 

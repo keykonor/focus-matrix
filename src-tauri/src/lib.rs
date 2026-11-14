@@ -10,6 +10,9 @@ mod task_links;
 mod task_images;
 mod task_documents;
 mod chat_extraction;
+mod agenda;
+#[cfg(windows)]
+mod agenda_notifications;
 
 struct DesktopLayer(AtomicBool);
 
@@ -88,6 +91,22 @@ fn quit_app(app: tauri::AppHandle) {
     app.exit(0);
 }
 
+#[tauri::command]
+async fn notify_agenda(app: tauri::AppHandle, title: String, body: String) -> Result<(), String> {
+    if title.trim().is_empty() || title.len() > 200 || body.len() > 50_000 {
+        return Err("提醒内容无效".into());
+    }
+    #[cfg(windows)]
+    {
+        let id = app.config().identifier.clone();
+        let body: String = body.chars().filter(|ch| *ch >= ' ' || matches!(ch, '\n' | '\t')).take(400).collect();
+        tauri::async_runtime::spawn_blocking(move || agenda_notifications::show(&id, &title, &body))
+            .await.map_err(|error| error.to_string())?
+    }
+    #[cfg(not(windows))]
+    { let _ = (app, title, body); Err("此平台不支持日程提醒".into()) }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[cfg(windows)]
@@ -107,7 +126,7 @@ pub fn run() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             Some(vec!["--autostart"]),
         ))
-        .invoke_handler(tauri::generate_handler![backup_corrupt_store, quit_app, set_desktop_layer, task_links::open_task_link, task_images::save_task_image, task_images::read_task_image, task_documents::save_task_document, task_documents::open_task_document, task_documents::paste_task_documents, task_documents::take_dropped_files, task_documents::take_chat_screenshots, chat_extraction::extract_chat_events,
+        .invoke_handler(tauri::generate_handler![backup_corrupt_store, quit_app, notify_agenda, set_desktop_layer, task_links::open_task_link, task_images::save_task_image, task_images::read_task_image, task_documents::save_task_document, task_documents::open_task_document, task_documents::paste_task_documents, task_documents::take_dropped_files, task_documents::take_chat_screenshots, chat_extraction::extract_chat_events, chat_extraction::cancel_chat_extraction,
             local_data::read_local_data, local_data::commit_local_data, local_data::read_update_request, local_data::finish_update_prepare, local_data::ack_update_restore,
             history::save_content_version, history::list_content_versions, history::get_content_version,
             cloud::get_cloud_status, cloud::configure_cloud, cloud::sync_cloud, cloud::set_cloud_sharing, cloud::rotate_cloud_link, cloud::ack_cloud_applied, cloud::set_share_editing, cloud::create_mobile_pairing, cloud::list_mobile_devices, cloud::revoke_mobile_device, cloud::get_cloud_changes])

@@ -15,17 +15,22 @@ const evaluate=async expression=>{const result=await send('Runtime.evaluate',{ex
 const wait=async expression=>{for(let i=0;i<200;i++){if(await evaluate(`Boolean(${expression})`))return;await delay(100);}throw Error('Timed out: '+expression);};
 const read=async path=>JSON.parse((await readFile(path,'utf8')).replace(/^\uFEFF/,''));
 try{
- await wait(`document.querySelector('.phone-button')?.disabled===false`);
+ await wait(`document.querySelector('.cloud-button')?.disabled===false`);
  const before=await evaluate(`window.__TAURI_INTERNALS__.invoke('get_cloud_status')`);assert.equal(before.configured,true);assert.equal('writerKey' in before,false);
- await evaluate(`document.querySelector('.modal-header button')?.click();document.querySelector('.phone-button').click()`);
+ await evaluate(`document.querySelector('.modal-header button')?.click();document.querySelector('.cloud-button').click()`);
+ await wait(`document.querySelector('.cloud-tabs button:nth-child(2)')`);
+ await evaluate(`document.querySelector('.cloud-tabs button:nth-child(2)').click()`);
  await wait(`document.querySelector('.phone-connection')`);await wait(`document.querySelector('.cloud-status')?.textContent.includes('云端连接正常')`);
  assert.equal(await evaluate(`document.querySelector('.cloud-modal').textContent.includes('云端尚未配置')`),false);
- await send('Page.reload');await wait(`document.querySelector('.phone-button')?.disabled===false`);
+ await send('Page.reload');await wait(`document.querySelector('.cloud-button')?.disabled===false`);
  const after=await evaluate(`window.__TAURI_INTERNALS__.invoke('get_cloud_status')`);assert.equal(after.configured,true);
  assert.deepEqual(after.phoneConnection.devices,before.phoneConnection.devices);assert.deepEqual(after.phoneConnection.pairing,before.phoneConnection.pairing);
  assert.equal(after.enabled,before.enabled);assert.equal(after.shareUrl,before.shareUrl);
- await evaluate(`document.querySelector('.phone-button').click()`);await wait(`document.querySelector('.cloud-status')?.textContent.includes('云端连接正常')`);
- await evaluate(`document.querySelector('.modal-header button').click();document.querySelector('[aria-label="打开历史记录"]').click()`);
+ await evaluate(`document.querySelector('.cloud-button').click()`);
+ await wait(`document.querySelector('.cloud-tabs button:nth-child(2)')`);
+ await evaluate(`document.querySelector('.cloud-tabs button:nth-child(2)').click()`);
+ await wait(`document.querySelector('.cloud-status')?.textContent.includes('云端连接正常')`);
+ await evaluate(`document.querySelector('.modal-header button').click();document.querySelector('.records-button').click()`);
  await wait(`document.querySelector('.history-modal')`);await evaluate(`document.querySelector('.history-close').click()`);
  assert.equal(await evaluate(`document.querySelectorAll('.quadrant').length`),4);
  const current=await read(join(directory,'focus-matrix.json')),prior=await read(join(backup,'focus-matrix.json'));

@@ -3,6 +3,40 @@ import { buildChatExtractionInput, previewChatEvents } from './chatExtraction';
 import { confirmChatEntry } from './chatImport';
 
 describe('local model chat extraction', () => {
+  it('leaves invented dates and borrowed times unassigned', () => {
+    const entries = previewChatEvents(JSON.stringify({ events: [
+      { kind: 'event', title: '提交合同', date: '2026-11-20', time: '14:00', source: '记得提交合同' },
+      { kind: 'event', title: '开会', date: '2026-11-20', time: '14:00', end: '16:00', source: '明天14:00开会' },
+      { kind: 'event', title: '看牙', date: '2026-11-14', time: '14:00', source: '明天14:00开会' },
+    ] }), '记得提交合同。明天14:00开会。后天16:00看牙。', '2026-11-13');
+    expect(entries[0]).toMatchObject({ date: undefined, hour: undefined, sourceText: '记得提交合同' });
+    expect(entries[1]).toMatchObject({ date: '2026-11-14', hour: 14, endTime: undefined });
+    expect(entries[2]).toMatchObject({ date: '2026-11-15', hour: undefined, sourceText: '后天16:00看牙' });
+  });
+
+  it('binds identical clock times to each dated message and resolves the nearest bare weekday', () => {
+    const entries = previewChatEvents(JSON.stringify({ events: [
+      { kind: 'event', title: '开会', date: '2026-01-01', time: '09:30' },
+      { kind: 'event', title: '交材料', date: '2026-01-02', time: '09:30' },
+      { kind: 'event', title: '体检', date: '2026-01-03', time: '13:00' },
+    ] }), '2026-12-31 18:00\n明天09:30开会\n后天09:30交材料\n周一13:00体检', '2026-11-13');
+    expect(entries.map(entry => entry.date)).toEqual(['2027-01-01', '2027-01-02', '2027-01-04']);
+  });
+
+  it('resolves a partial date across the year and rejects conflicting evidence', () => {
+    const entries = previewChatEvents(JSON.stringify({ events: [
+      { kind: 'event', title: '开会', time: '09:30' },
+      { kind: 'event', title: '体检', date: '2027-01-03', time: '13:00' },
+    ] }), '1月2日09:30开会。3日或4日13:00体检。', '2026-12-31');
+    expect(entries.map(entry => entry.date)).toEqual(['2027-01-02', undefined]);
+  });
+
+  it('uses a timestamp on the same line and keeps the timestamp clock out of the event', () => {
+    const entries = previewChatEvents(JSON.stringify({ events: [
+      { kind: 'event', title: '开会', time: '09:30', source: '明晚开会' },
+    ] }), '[2026-12-31 09:30] 王同学：明晚开会', '2026-11-13');
+    expect(entries[0]).toMatchObject({ date: '2027-01-01', period: 'evening', hour: undefined });
+  });
   it('provides real calendar dates for relative weekdays', () => {
     const input = buildChatExtractionInput('周一中午12点前填表', '2026-11-12');
     expect(input).toContain('2026-11-16（周一）');
@@ -18,10 +52,12 @@ describe('local model chat extraction', () => {
       { kind: 'deadline', title: '填写大巴通勤和晚餐统计表', date: '2026-11-18', time: '12:00', end: '',
         location: '', address: '', preparation: '按实际情况填报，特殊过敏或忌口请备注' },
     ] }), source, '2026-11-12');
-    expect(preview.map(confirmChatEntry)).toEqual([
+    expect(preview.map(confirmChatEntry)).toMatchObject([
       { date: '2026-11-20', period: 'afternoon', hour: 13,
+        startTime: '13:30', endTime: '17:00',
         text: '13:30–17:00 创业实战课第4讲 · 地点 仁爱集团（仁爱团泊湖接待中心）' },
       { date: '2026-11-16', period: 'afternoon', hour: 12,
+        startTime: '12:00', deadline: true,
         text: '12:00 前 填写大巴通勤和晚餐统计表 · 准备 按实际情况填报，特殊过敏或忌口请备注' },
     ]);
   });

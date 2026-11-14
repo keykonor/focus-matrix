@@ -196,7 +196,7 @@ try {
   await evaluate("document.querySelector('.save-version-button').click()");
   await waitFor(`JSON.parse(sessionStorage.getItem('content-check-history')).filter(v => v.reason === 'manual').length === ${manualCount + 1}`, 'repeated explicit save keeps a separate version');
   const openHistory = async () => {
-    await evaluate("document.querySelector('[aria-label=\"打开历史记录\"]').click()");
+    await evaluate("document.querySelector('.records-button').click()");
     await waitFor("document.querySelector('.history-version')", 'history list');
     await waitFor("document.querySelector('.history-task-counts')", 'history preview');
   };

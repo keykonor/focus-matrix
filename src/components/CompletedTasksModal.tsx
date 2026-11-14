@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { CompletedTaskRecord } from '../completedTasks';
 import { quadrantNames } from '../types';
 import { imageIds, visibleTaskText } from '../taskImages';
@@ -6,9 +6,10 @@ import { TaskImage } from './TaskImage';
 import { TaskDocuments } from './TaskDocuments';
 import { SubtasksPreview } from './SubtasksEditor';
 
-interface Props { records: CompletedTaskRecord[]; onClose: () => void; }
+interface Props { records: CompletedTaskRecord[]; onClose: () => void; navigation?: ReactNode; }
 
-export function CompletedTasksModal({ records, onClose }: Props) {
+export function CompletedTasksModal({ records, onClose, navigation }: Props) {
+  const embedded = Boolean(navigation);
   const dialog = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState('');
   const [date, setDate] = useState('');
@@ -16,13 +17,13 @@ export function CompletedTasksModal({ records, onClose }: Props) {
   useEffect(() => {
     const previous = document.activeElement;
     dialog.current?.focus();
-    return () => { if (previous instanceof HTMLElement) previous.focus(); };
-  }, []);
+    return () => { if (!embedded && previous instanceof HTMLElement) previous.focus(); };
+  }, [embedded]);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') { event.preventDefault(); onClose(); }
       if (event.key !== 'Tab') return;
-      const items = dialog.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input');
+      const items = dialog.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input, a[href], summary');
       if (!items?.length) return;
       const first = items[0], last = items[items.length - 1];
       if (event.shiftKey && (document.activeElement === first || document.activeElement === dialog.current)) {
@@ -44,10 +45,11 @@ export function CompletedTasksModal({ records, onClose }: Props) {
   }
   return <div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
     <div className="completed-modal" ref={dialog} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="completed-title">
-      <header className="history-header"><div><h2 id="completed-title">已完成仓库</h2>
+      <header className="history-header"><div><h2 id="completed-title">{embedded ? '历史与仓库' : '已完成仓库'}</h2>
         <p>跨日自动收起已勾选任务 · 共 {records.length} 项</p></div>
         <button className="history-close" type="button" aria-label="关闭已完成仓库" onClick={onClose}>×</button>
       </header>
+      {navigation}
       <div className="completed-filters">
         <input type="search" aria-label="搜索已完成任务" placeholder="搜索已完成任务" value={query}
           onChange={event => { setQuery(event.target.value); setLimit(80); }} />

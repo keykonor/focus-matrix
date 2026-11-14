@@ -15,7 +15,7 @@ const wait=async expression=>{for(let i=0;i<200;i++){if(await evaluate(`Boolean(
 const dataDirectory=join(process.env.APPDATA,'com.focusmatrix.desktop');
 try{
  await send('Runtime.enable');
- await wait('document.querySelector(".phone-button") && !document.querySelector(".phone-button").disabled');
+ await wait('document.querySelector(".cloud-button") && !document.querySelector(".cloud-button").disabled');
  await evaluate('document.querySelector(".modal-header button")?.click()');await wait('!document.querySelector(".modal-backdrop")');
  for(const [width,height] of [[1200,760],[720,480],[520,360]]){
   await send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false});
@@ -23,7 +23,9 @@ try{
   assert.ok(await evaluate('document.querySelector("#cloud-link").value.startsWith("https://")'));
   assert.equal(await evaluate('document.querySelector(".cloud-tabs button").getAttribute("aria-pressed")'),'true');
   await evaluate('document.querySelector(".modal-header button").click()');await wait('!document.querySelector(".modal-backdrop")');
-  await evaluate('document.querySelector(".phone-button").click()');
+  await evaluate('document.querySelector(".cloud-button").click()');
+  await wait(`document.querySelector('.cloud-tabs button:nth-child(2)')`);
+  await evaluate(`document.querySelector('.cloud-tabs button:nth-child(2)').click()`);
   await wait('document.querySelector(".phone-connection")');
   assert.ok(await evaluate('document.querySelector(".phone-connection").textContent.includes("电脑关机")'));
   assert.ok(await evaluate(`(()=>{const title=document.querySelector('.title-bar'),buttons=[...title.querySelectorAll('button')];return document.documentElement.scrollWidth<=innerWidth&&buttons.every(button=>{const r=button.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=title.getBoundingClientRect().bottom;})})()`),'标题栏按钮溢出 '+width);

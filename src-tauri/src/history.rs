@@ -52,6 +52,8 @@ pub struct Content {
     #[serde(default)] daily_memos: BTreeMap<String, SavedMemo>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")] daily_diaries: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")] daily_memo_schedules: DailyMemoSchedules,
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "crate::agenda::deserialize")]
+    agenda: Option<serde_json::Value>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
@@ -92,7 +94,9 @@ impl Content {
             if !valid_date(date) { return Err("Invalid memo date in history".into()); }
         }
         for date in self.daily_diaries.keys() { if !valid_date(date) { return Err("Invalid diary date in history".into()); } }
-        validate_memo_schedules(&self.daily_memo_schedules)
+        validate_memo_schedules(&self.daily_memo_schedules)?;
+        if let Some(value) = &self.agenda { crate::agenda::validate(value)?; }
+        Ok(())
     }
 }
 pub(crate) fn valid_date(date: &str) -> bool {
@@ -238,7 +242,7 @@ mod tests {
         fs::create_dir_all(&root).unwrap(); root
     }
     fn content(text: &str) -> Content {
-        Content { tasks: vec![SavedTask { id: "one".into(), text: text.into(), completed: false, created_at: "original".into(), updated_at: "original".into(), quadrant: "important-urgent".into(), subtasks: None }], daily_memos: BTreeMap::from([("2026-10-03".into(), SavedMemo { evening: "晚间记录".into(), ..Default::default() })]), daily_diaries: BTreeMap::new(), daily_memo_schedules: BTreeMap::new() }
+        Content { tasks: vec![SavedTask { id: "one".into(), text: text.into(), completed: false, created_at: "original".into(), updated_at: "original".into(), quadrant: "important-urgent".into(), subtasks: None }], daily_memos: BTreeMap::from([("2026-10-03".into(), SavedMemo { evening: "晚间记录".into(), ..Default::default() })]), daily_diaries: BTreeMap::new(), daily_memo_schedules: BTreeMap::new(), agenda: None }
     }
     #[test]
     fn previous_current_manual_and_restore_versions_are_durable() {
@@ -304,6 +308,15 @@ mod tests {
         raw["tasks"][0]["subtasks"][0]["completed"] = serde_json::json!("broken");
         assert!(serde_json::from_value::<Content>(raw).is_err());
         fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn agenda_and_import_batches_survive_history_and_malformed_data_is_rejected() {
+        let mut raw = serde_json::to_value(content("original")).unwrap();
+        raw["agenda"] = serde_json::json!({"events":[],"batches":[],"receipts":[]});
+        let parsed: Content = serde_json::from_value(raw.clone()).unwrap();
+        assert_eq!(serde_json::to_value(parsed).unwrap(), raw);
+        raw["agenda"]["events"] = serde_json::json!("damaged");
+        assert!(serde_json::from_value::<Content>(raw).is_err());
     }
     #[test]
     fn diary_is_preserved_in_immutable_history() {

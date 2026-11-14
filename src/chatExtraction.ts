@@ -1,6 +1,5 @@
 import { dateFromKey, isDateKey, localDateKey } from './calendarModel';
 import { chatPeriodForHour, chatTimeLabel, type ChatPreview } from './chatImport';
-import { memoPeriods } from './types';
 
 const weekdays = '日一二三四五六';
 
@@ -77,7 +76,8 @@ const relativeDays = {
   大前天: -3, 前天: -2, 昨天: -1, 昨晚: -1, 今天: 0, 今早: 0, 今晚: 0,
   明天: 1, 明早: 1, 明晚: 1, 后天: 2, 大后天: 3,
 };
-const chatDateHeader = /^(\d{4})\s*[-/.年]\s*(\d{1,2})\s*[-/.月]\s*(\d{1,2})\s*日?(?:\s+\d{1,2}\s*:\s*\d{2})?$/;
+const chatDateHeader = /^\[?(\d{4})\s*[-/.年]\s*(\d{1,2})\s*[-/.月]\s*(\d{1,2})\s*日?(?:\s+\d{1,2}\s*:\s*\d{2})?\]?$/;
+const inlineChatTimestamp = /^\[?(\d{4})\s*[-/.年]\s*(\d{1,2})\s*[-/.月]\s*(\d{1,2})\s*日?\s+\d{1,2}\s*:\s*\d{2}\]?\s+(?=.{0,20}(?:明[天早晚]|今[天早晚]|后天|前天|昨[天晚]|星期|周))/;
 
 function exactDurationDeadline(source: string) {
   const match = source.normalize('NFKC').trim().match(
@@ -93,40 +93,59 @@ function exactDurationDeadline(source: string) {
   return { date: localDateKey(end), time: chatTimeLabel(end.getHours(), end.getMinutes()) };
 }
 
-function relativeDateEvidence(source: string, reference: string) {
+function offsetDate(base: Date, days: number) {
+  return localDateKey(new Date(base.getFullYear(), base.getMonth(), base.getDate() + days, 12));
+}
+
+function dateEvidence(source: string, reference?: string): string | undefined {
+  const text = compact(source);
+  const base = reference ? dateFromKey(reference) : undefined;
+  const explicit = [...text.matchAll(/(?<![\d:])(?:(\d{4})[年./-])?(\d{1,2})(?:月|[./-])(\d{1,2})(?:[日号]|(?=$|[^\d.:]))/g)];
+  const days = [...text.matchAll(/(?<![\d星])(?<!星期)(\d{1,2})[日号]/g)]
+    .filter(match => !explicit.some(date => match.index >= date.index && match.index < date.index + date[0].length));
+  const tokens = [...text.matchAll(/大前天|大后天|前天|昨天|昨晚|今天|今早|今晚|明天|明早|明晚|后天|(上上|上|本|这|下下|下)?(?:周|星期)([一二三四五六日天])/g)];
+  if (explicit.length + days.length > 1) return undefined;
+  if (explicit.length + days.length && tokens.length && /或(?:者)?|待定|未定/.test(text)) return undefined;
+  if (explicit.length || days.length) {
+    const [, year, month, day] = explicit[0] ?? ['', '', base ? String(base.getMonth() + 1) : '', days[0][1]];
+    if (!year && !base) return undefined;
+    let numericYear = Number(year || base?.getFullYear());
+    const numericMonth = Number(month);
+    if (!year && base && base.getMonth() + 1 - numericMonth > 6) numericYear++;
+    const key = [String(numericYear), month.padStart(2, '0'), day.padStart(2, '0')].join('-');
+    return isDateKey(key) ? key : undefined;
+  }
+  if (!base) return undefined;
+  if (tokens.length !== 1) return undefined;
+  const [token, qualifier, weekday] = tokens[0];
+  if (!weekday) return offsetDate(base, relativeDays[token as keyof typeof relativeDays]);
+  const current = (base.getDay() + 6) % 7;
+  const target = (weekdays.indexOf(weekday === '天' ? '日' : weekday) + 6) % 7;
+  const week = qualifier === '上上' ? -2 : qualifier === '上' ? -1 : qualifier === '下下' ? 2 :
+    qualifier === '下' || (!qualifier && target < current) ? 1 : 0;
+  return offsetDate(base, target - current + week * 7);
+}
+
+function sourceClauses(source: string, reference?: string) {
   let base = reference;
-  return source.normalize('NFKC').split(/\r?\n/).flatMap(line => {
-    const header = line.trim().match(chatDateHeader);
+  return source.normalize('NFKC').replace(/(中午|凌晨|上午|下午|晚上|早上|傍晚)\s*\r?\n[ \t]*(?=\d)/g, '$1').split(/\r?\n/).flatMap(line => {
+    if (/^【截图 \d+】$/.test(line.trim())) { base = reference; return []; }
+    const trimmed = line.trim();
+    const header = trimmed.match(chatDateHeader) ?? trimmed.match(inlineChatTimestamp);
     if (header) {
       const key = [header[1], header[2].padStart(2, '0'), header[3].padStart(2, '0')].join('-');
       base = isDateKey(key) ? key : reference;
-      return [];
     }
-    return line.split(/[。！？；!?;]/).filter(clause => clause.trim()).map(clause => {
-      const value = compact(clause);
-      const explicit = /(?:\d{1,2}月\d{1,2}|\d{1,2}[./-]\d{1,2}|\d{1,2}[日号]|(?:周|星期)[一二三四五六日天])/.test(value);
-      const tokens = value.match(/大前天|大后天|前天|昨天|昨晚|今天|今早|今晚|明天|明早|明晚|后天/g);
-      const token = !explicit && tokens?.length === 1 ? tokens[0] as keyof typeof relativeDays : undefined;
-      const day = dateFromKey(base);
-      const date = token ? localDateKey(new Date(day.getFullYear(), day.getMonth(), day.getDate() + relativeDays[token], 12)) : undefined;
-      return { date, explicit, times: sourceClockTimes(clause) };
-    });
+    return trimmed.slice(header?.[0].length ?? 0).split(/[。！？；!?;]|[,，](?=\s*(?:明[天早晚]|今[天早晚]|后天|周[一二三四五六日天]|下周|\d{1,2}月))/)
+      .map(value => value.trim()).filter(Boolean).map(text => ({ text, base, times: sourceClockTimes(text) }));
   });
 }
 
-function weekdayDeadlineDate(source: string, time: string, reference: string): string | undefined {
-  const hints = [...source.matchAll(/(上|本|这|下下|下)?(?:周|星期)([一二三四五六日天])(?:早上|上午|中午|下午|晚上|凌晨)?(\d{1,2}:\d{2})(?:以前|之前|前)/g)]
-    .filter(match => match[3].padStart(5, '0') === time &&
-      !/\d{1,2}(?:月\d{1,2}[日号]?|[./-]\d{1,2})[（(]?$/.test(source.slice(Math.max(0, match.index - 15), match.index)));
-  const date = dateFromKey(reference);
-  const weekday = (date.getDay() + 6) % 7;
-  const dates = new Set(hints.map(([, qualifier, day]) => {
-    const target = (weekdays.indexOf(day === '天' ? '日' : day) + 6) % 7;
-    const offset = qualifier === '上' ? -7 : qualifier === '下' ? 7 : qualifier === '下下' ? 14 :
-      !qualifier && target < weekday ? 7 : 0;
-    return localDateKey(new Date(date.getFullYear(), date.getMonth(), date.getDate() + target - weekday + offset, 12));
-  }));
-  return dates.size === 1 ? [...dates][0] : undefined;
+function inferPeriod(source: string) {
+  const periods = new Set([...source.matchAll(/凌晨|早上|上午|今早|明早|中午|下午|傍晚|晚上|昨晚|今晚|明晚/g)]
+    .map(([label]) => /凌晨|早上|上午|今早|明早/.test(label) ? 'morning' as const :
+      /中午|下午/.test(label) ? 'afternoon' as const : 'evening' as const));
+  return periods.size === 1 ? [...periods][0] : undefined;
 }
 
 export function previewChatEvents(output: string, source: string, reference?: string): ChatPreview[] {
@@ -137,8 +156,7 @@ export function previewChatEvents(output: string, source: string, reference?: st
     throw Error('本地模型返回的事项格式有误，请重试。');
   }
   const original = compact(source);
-  const sourceTimes = sourceClockTimes(source);
-  const relative = reference && isDateKey(reference) ? relativeDateEvidence(source, reference) : [];
+  const clauses = sourceClauses(source, reference && isDateKey(reference) ? reference : undefined);
   const events = result.events.slice(0, 24).filter((value): value is Record<string, unknown> =>
     Boolean(value && typeof value === 'object' && taskDescription(value.title, 150) &&
       (value.kind === 'event' || value.kind === 'deadline')));
@@ -152,7 +170,6 @@ export function previewChatEvents(output: string, source: string, reference?: st
   const previews: ChatPreview[] = [];
   for (const event of events) {
     let title = taskDescription(event.title, 150);
-    const modelDate = field(event.date, 16);
     const location = field(event.location, 200);
     const address = field(event.address, 200);
     let preparation = movePreparation ? (event === formDeadline ? activityPreparation : '') : taskDescription(event.preparation, 360);
@@ -165,22 +182,31 @@ export function previewChatEvents(output: string, source: string, reference?: st
     }
     const deadline = event.kind === 'deadline';
     const proposedTime = clock(event.time);
-    const time = durationDeadline?.time ?? (proposedTime && sourceTimes.has(proposedTime) ? proposedTime : undefined);
-    const matching = time ? relative.filter(hint => hint.times.has(time)) : [];
-    const relativeDate = matching.length === 1 ? matching[0].date :
-      !matching.length && events.length === 1 && !relative.some(hint => hint.explicit) && relative.filter(hint => hint.date).length === 1
-        ? relative.find(hint => hint.date)?.date : undefined;
-    const date = durationDeadline?.date ?? relativeDate
-      ?? (deadline && time && reference && isDateKey(reference) ? weekdayDeadlineDate(original, time, reference) : undefined)
-      ?? (isDateKey(modelDate) ? modelDate : undefined);
+    const byTitle = clauses.filter(clause => compact(clause.text).includes(compact(title)));
+    const quote = field(event.source, 600);
+    const quoteText = compact(quote);
+    const quoteMatchesTitle = byTitle.length === 0 || byTitle.some(clause =>
+      compact(clause.text).includes(quoteText) || quoteText.includes(compact(clause.text)));
+    const quoted = quoteText && quoteMatchesTitle && original.includes(quoteText) ? quote : undefined;
+    const byTime = proposedTime ? clauses.filter(clause => clause.times.has(proposedTime)) : [];
+    const matching = byTitle.length ? byTitle : quote ? [] : byTime;
+    const bound = matching.length === 1 ? matching[0] : events.length === 1 && clauses.length === 1 ? clauses[0] : undefined;
+    const quotedClauses = quoted ? clauses.filter(clause =>
+      compact(quoted).includes(compact(clause.text)) || compact(clause.text).includes(compact(quoted))) : [];
+    const quotedBases = new Set(quotedClauses.map(clause => clause.base));
+    const evidence = quoted ?? bound?.text ?? (durationDeadline ? source : '');
+    const base = quoted ? quotedBases.size === 1 ? [...quotedBases][0] : undefined : bound?.base;
+    const evidenceTimes = sourceClockTimes(evidence);
+    const time = durationDeadline?.time ?? (proposedTime && evidenceTimes.has(proposedTime) ? proposedTime : undefined);
+    const date = durationDeadline?.date ?? dateEvidence(evidence, base);
     const proposedEnd = clock(event.end);
-    const endTime = time && !deadline && proposedEnd && sourceTimes.has(proposedEnd) ? proposedEnd : undefined;
+    const endTime = time && !deadline && proposedEnd && proposedEnd > time && evidenceTimes.has(proposedEnd) ? proposedEnd : undefined;
     const hour = time === undefined ? undefined : Number(time.slice(0, 2));
-    const period = hour === undefined ? memoPeriods.find(value => value === event.period) : chatPeriodForHour(hour);
+    const period = hour === undefined ? inferPeriod(evidence) : chatPeriodForHour(hour);
     const text = [title, location && '地点 ' + location, address && original.includes(compact(address)) && '地址 ' + address,
       preparation && '准备 ' + preparation].filter(Boolean).join(' · ');
     previews.push({ date, period, hour,
-      minute: time === undefined ? undefined : Number(time.slice(3)), endTime, deadline, text });
+      minute: time === undefined ? undefined : Number(time.slice(3)), endTime, deadline, text, sourceText: evidence || undefined });
   }
   return previews;
 }

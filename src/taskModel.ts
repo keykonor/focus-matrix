@@ -35,5 +35,7 @@ export function parseSettings(value: unknown): AppSettings {
       : defaultSettings.opacity,
     showCompleted: typeof input.showCompleted === 'boolean' ? input.showCompleted : defaultSettings.showCompleted,
     calendarOpen: typeof input.calendarOpen === 'boolean' ? input.calendarOpen : defaultSettings.calendarOpen,
+    theme: input.theme === 'warm-gray' || input.theme === 'light' ? input.theme : 'classic',
+    density: input.density === 'compact' ? 'compact' : 'comfortable',
   };
 }

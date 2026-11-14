@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { getVersion, historyReasonNames, listVersions, type ContentVersion, type VersionList } from '../contentHistory';
 import { quadrantNames, quadrants } from '../types';
 import { groupTaskVersions } from '../taskHistory';
@@ -12,9 +12,11 @@ interface Props {
   onClose: () => void;
   onSaveVersion: () => Promise<void>;
   onRestore: (version: ContentVersion) => Promise<void>;
+  navigation?: (busy: boolean) => ReactNode;
 }
 
-export function HistoryModal({ onClose, onSaveVersion, onRestore }: Props) {
+export function HistoryModal({ onClose, onSaveVersion, onRestore, navigation }: Props) {
+  const embedded = Boolean(navigation);
   const dialog = useRef<HTMLDivElement>(null);
   const [list, setList] = useState<VersionList>({ versions: [], unreadableCount: 0 });
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -31,17 +33,17 @@ export function HistoryModal({ onClose, onSaveVersion, onRestore }: Props) {
   useEffect(() => {
     const previousFocus = document.activeElement;
     dialog.current?.focus();
-    return () => { if (previousFocus instanceof HTMLElement) previousFocus.focus(); };
-  }, []);
+    return () => { if (!embedded && previousFocus instanceof HTMLElement) previousFocus.focus(); };
+  }, [embedded]);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && !busy) { event.preventDefault(); onClose(); }
       if (event.key !== 'Tab') return;
-      const buttons = dialog.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)');
+      const buttons = dialog.current?.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], summary, input:not(:disabled)');
       if (!buttons?.length) { event.preventDefault(); return; }
       const first = buttons[0], last = buttons[buttons.length - 1];
       if (event.shiftKey && (document.activeElement === first || document.activeElement === dialog.current)) { event.preventDefault(); last.focus(); }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+      else if (!event.shiftKey && (document.activeElement === last || document.activeElement === dialog.current)) { event.preventDefault(); first.focus(); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -83,9 +85,10 @@ export function HistoryModal({ onClose, onSaveVersion, onRestore }: Props) {
   return <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
     <div className="history-modal" role="dialog" aria-modal="true" aria-labelledby="history-title" tabIndex={-1} ref={dialog}>
       <header className="history-header">
-        <div><h2 id="history-title">待办历史</h2><p>按保存日期查看和恢复待办列表</p></div>
+        <div><h2 id="history-title">{embedded ? '历史与仓库' : '待办历史'}</h2><p>按保存日期查看和恢复待办列表</p></div>
         <button type="button" className="history-close" aria-label="关闭历史记录" disabled={busy} onClick={onClose}>×</button>
       </header>
+      {navigation?.(busy)}
       <div className="history-toolbar"><span>提交保存后保留 · 历史记录不会自动删除</span>
         <button type="button" className="history-save" disabled={busy} onClick={() => void perform(onSaveVersion, '当前待办已保存为一个新版本。')}>保存当前待办</button>
       </div>

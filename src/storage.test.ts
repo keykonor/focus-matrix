@@ -8,6 +8,20 @@ vi.mock('./contentHistory', () => ({ archiveContent: archive }));
 vi.mock('@tauri-apps/api/core', () => ({ invoke }));
 describe('content history guards the current data', () => {
   beforeEach(() => { archive.mockReset(); invoke.mockReset(); });
+  it('persists structured agenda and its undo batches without rewriting legacy content', async () => {
+    const original: AppData = { tasks: [], dailyMemos: {}, settings: defaultSettings };
+    const agenda = { events: [], batches: [], receipts: [] };
+    await saveData({ baseline: original }, { ...original, agenda } as AppData);
+    expect(invoke).toHaveBeenCalledWith('commit_local_data', { patch: { agenda } });
+    expect(archive).toHaveBeenCalledWith(expect.objectContaining({ agenda }));
+  });
+  it('loads agenda exactly and refuses damaged agenda rather than overwriting it', async () => {
+    const agenda = { events: [], batches: [], receipts: [] };
+    invoke.mockResolvedValueOnce({ data: { tasks: [], agenda } });
+    expect((await openDataStore()).data).toHaveProperty('agenda', agenda);
+    invoke.mockResolvedValueOnce({ data: { tasks: [], agenda: { events: 'broken' } } });
+    await expect(openDataStore()).rejects.toThrow();
+  });
   it('saves a day’s hourly notes independently of the original memo periods', async () => {
     const original: AppData = { tasks: [], dailyMemos: {}, settings: defaultSettings };
     const dailyMemoSchedules: AppData['dailyMemoSchedules'] = { '2026-11-09': { mode: 'hourly', hours: [9, 14], notes: { '9': '上午的安排' } } };

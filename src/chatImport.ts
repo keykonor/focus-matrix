@@ -16,6 +16,11 @@ export interface ChatEntry {
   period: MemoPeriod;
   hour?: number;
   text: string;
+  startTime?: string;
+  endTime?: string;
+  deadline?: boolean;
+  description?: string;
+  sourceText?: string;
 }
 
 export interface ChatPreview {
@@ -27,6 +32,7 @@ export interface ChatPreview {
   endTime?: string;
   deadline?: boolean;
   text: string;
+  sourceText?: string;
 }
 
 export function chatTimeLabel(hour: number, minute: number): string {
@@ -38,17 +44,28 @@ export function chatPeriodForHour(hour: number): MemoPeriod {
 }
 
 export function confirmChatEntry(preview: ChatPreview): ChatEntry | undefined {
-  const { date, period, hour, minute, endTime, deadline, text, timeMode } = preview;
+  const { date, period, hour, minute, endTime, deadline, text, timeMode, sourceText } = preview;
   const value = text.trim();
   if (!date || !isDateKey(date) || !value) return;
+  const start = hour !== undefined && minute !== undefined && Number.isInteger(hour) && Number.isInteger(minute) &&
+    hour >= 0 && hour < 24 && minute >= 0 && minute < 60 ? chatTimeLabel(hour, minute) : undefined;
+  const end = start && !deadline && endTime && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(endTime) && endTime > start
+    ? endTime : undefined;
+  const metadata = { description: value, ...(start && { startTime: start }), ...(end && { endTime: end }),
+    ...(deadline && start && { deadline }), ...(sourceText && { sourceText }) };
   if (timeMode === 'periods' || (!timeMode && (hour === undefined || minute === undefined))) {
-    return period ? { date, period, text: value } : undefined;
+    return period ? { date, period, text: value, ...metadata } : undefined;
   }
-  if (hour === undefined || minute === undefined || !Number.isInteger(hour) || !Number.isInteger(minute) ||
-      hour < 0 || hour > 23 || minute < 0 || minute > 59) return;
-  const start = chatTimeLabel(hour, minute);
-  const time = deadline ? start + ' 前' : endTime ? start + '–' + endTime : start;
-  return { date, period: chatPeriodForHour(hour), hour, text: value.startsWith(time + ' ') ? value : time + ' ' + value };
+  if (hour === undefined || !start || (endTime && !deadline && !end)) return;
+  const time = deadline ? start + ' 前' : end ? start + '–' + end : start;
+  const description = value.startsWith(time + ' ') ? value.slice(time.length + 1).trim() : value;
+  return description ? { date, period: chatPeriodForHour(hour), hour, text: time + ' ' + description, ...metadata, description } : undefined;
+}
+
+export function chatEntryFingerprint(entry: ChatEntry): string {
+  const title = (entry.description ?? entry.text).normalize('NFKC').toLowerCase()
+    .replace(/\s+/g, '').replace(/[。.!！]+$/, '');
+  return JSON.stringify([entry.date, entry.startTime ?? entry.period, entry.endTime ?? '', Boolean(entry.deadline), title]);
 }
 
 export function planChatLayouts(entries: ChatEntry[], schedules: DailyMemoSchedules | undefined, memos: DailyMemos): Record<string, ChatLayoutPlan> {

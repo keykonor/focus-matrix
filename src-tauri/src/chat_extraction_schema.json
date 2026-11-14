@@ -9,7 +9,7 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["kind", "title", "date", "time", "end", "period", "location", "address", "preparation"],
+        "required": ["kind", "title", "date", "time", "end", "period", "location", "address", "preparation", "source"],
         "properties": {
           "kind": { "enum": ["event", "deadline"] },
           "title": { "type": "string" },
@@ -19,7 +19,7 @@
           "period": { "enum": ["", "morning", "afternoon", "evening"] },
           "location": { "type": "string" },
           "address": { "type": "string" },
-          "preparation": { "type": "string" }
+          "preparation": { "type": "string" }, "source": { "type": "string" }
         }
       }
     }

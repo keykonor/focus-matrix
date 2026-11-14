@@ -46,7 +46,7 @@ const wait = async expression => {
 };
 try {
   await send('Runtime.enable');
-  await wait("document.querySelector('.completed-button')?.disabled === false");
+  await wait("document.querySelector('.records-button')?.disabled === false");
   await delay(1000);
   assert.equal(await evaluate("Boolean(document.querySelector('.save-error'))"), false);
   const current = JSON.parse(await readFile(join(directory, 'focus-matrix.json'), 'utf8'));
@@ -78,7 +78,9 @@ try {
   }
   assert.deepEqual(JSON.parse(await readFile(join(directory, '.window-state.json'), 'utf8')),
     JSON.parse(await readFile(join(backup, '.window-state.json'), 'utf8')), 'Window state changed');
-  await evaluate("document.querySelector('.completed-button').click()");
+  await evaluate("document.querySelector('.records-button').click()");
+  await wait("document.querySelector('.records-tabs button:nth-child(2)')");
+  await evaluate("document.querySelector('.records-tabs button:nth-child(2)').click()");
   await wait("document.querySelector('.completed-modal')");
   assert.equal(await evaluate("document.querySelectorAll('.completed-record').length"), Math.min(80, currentRecords.length));
   for (const [width, height] of [[520, 360], [720, 480], [1200, 760]]) {

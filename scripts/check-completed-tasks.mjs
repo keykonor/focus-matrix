@@ -86,6 +86,9 @@ try {
   await send('Emulation.setTimezoneOverride', { timezoneId: 'Asia/Shanghai' });
   await send('Emulation.setDeviceMetricsOverride', { width: 720, height: 480, deviceScaleFactor: 1, mobile: false });
   await send('Page.addScriptToEvaluateOnNewDocument', { source: `if (location.origin === ${JSON.stringify(origin)}) {
+    window.fixtureLoad = crypto.randomUUID();
+    const next = sessionStorage.getItem('calendar-check-next-data');
+    if (next) { sessionStorage.setItem('calendar-check-data', next); sessionStorage.removeItem('calendar-check-next-data'); }
     if (!sessionStorage.getItem('calendar-check-data')) sessionStorage.setItem('calendar-check-data', ${JSON.stringify(JSON.stringify(seed))});
     const RealDate = Date;
     window.setTestDay = (value, notify = true, ticking = false) => {
@@ -172,7 +175,9 @@ try {
   await send('Page.reload');
   await wait("JSON.parse(sessionStorage.getItem('calendar-check-data')).completedTasks.length === 5 && document.querySelectorAll('.task-item').length === 1");
   assert.equal((await data()).tasks[0].id, '关机前未完成');
-  await evaluate("document.querySelector('.completed-button').click()");
+  await evaluate("document.querySelector('.records-button').click()");
+  await wait("document.querySelector('.records-tabs button:nth-child(2)')");
+  await evaluate("document.querySelector('.records-tabs button:nth-child(2)').click()");
   await wait("document.querySelectorAll('.completed-record').length === 5");
   const typeSearch = async value => evaluate(`(() => { const field = document.querySelector('[aria-label="搜索已完成任务"]');
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(field, ${JSON.stringify(value)});
@@ -197,7 +202,7 @@ try {
       const issues = [];
       if (document.documentElement.scrollWidth > innerWidth + 1 || document.documentElement.scrollHeight > innerHeight + 1) issues.push('page overflow');
       const start = document.querySelector('.title-start').getBoundingClientRect(), actions = document.querySelector('.title-actions').getBoundingClientRect();
-      if (start.right > actions.left || actions.right > innerWidth) issues.push('toolbar overlap');
+      if ((start.right > actions.left && start.top < actions.bottom && actions.top < start.bottom) || actions.right > innerWidth) issues.push('toolbar overlap');
       for (const selector of ['.completed-modal', '.completed-list', '.completed-filters', '.completed-record p']) {
         for (const element of document.querySelectorAll(selector)) {
           const rect = element.getBoundingClientRect();
@@ -221,7 +226,7 @@ try {
   await evaluate(`sessionStorage.setItem('calendar-check-data', ${JSON.stringify(JSON.stringify(updateSnapshot))});
     sessionStorage.setItem('update-check-guard', '2026-10-21'); sessionStorage.setItem('update-check-nonce', 'test-update-nonce');`);
   await send('Page.reload');
-  await wait("document.querySelector('.completed-button')?.disabled === false && sessionStorage.getItem('update-check-verified') === '1'");
+  await wait("document.querySelector('.records-button')?.disabled === false && sessionStorage.getItem('update-check-verified') === '1'");
   await delay(600);
   assert.deepEqual(await data(), updateSnapshot, 'Updating unexpectedly changed the saved full snapshot');
   await evaluate("window.dispatchEvent(new Event('focus'))");
@@ -246,7 +251,7 @@ try {
     sessionStorage.setItem('repository-clock-ticking', '1');
     sessionStorage.removeItem('update-check-guard'); sessionStorage.removeItem('update-check-nonce');`);
   await send('Page.reload');
-  await wait("document.querySelector('.completed-button')?.disabled === false");
+  await wait("document.querySelector('.records-button')?.disabled === false");
   assert.equal((await data()).tasks.length, 3);
   await evaluate(`window.midnightEvents = 0;
     window.addEventListener('focus', () => window.midnightEvents++);
@@ -268,14 +273,15 @@ try {
   // Real React components with only the native IPC boundary paused. These data
   // live in this browser profile, never the installed application's data path.
   const interactionFailures = [];
-  const reloadInteraction = async (gates = [], settings = {}) => {
-    await evaluate(`sessionStorage.setItem('calendar-check-data', ${JSON.stringify(JSON.stringify({ ...seed, settings: { ...seed.settings, ...settings } }))});
+  const reloadInteraction = async (gates = [], settings = {}, seedData = {}) => {
+    const previous = await evaluate('window.fixtureLoad');
+    await evaluate(`sessionStorage.setItem('calendar-check-next-data', ${JSON.stringify(JSON.stringify({ ...seed, ...seedData, settings: { ...seed.settings, ...settings } }))});
       sessionStorage.setItem('interaction-check-gates', ${JSON.stringify(JSON.stringify(gates))});
       sessionStorage.setItem('repository-clock', '2026-10-16T12:00:00+08:00');
       sessionStorage.removeItem('repository-clock-ticking'); sessionStorage.removeItem('cloud-check-delivery');
       sessionStorage.removeItem('update-check-quit'); sessionStorage.removeItem('update-check-guard');`);
     await send('Page.reload');
-    await wait('window.interactionCheck');
+    await wait(`window.interactionCheck && window.fixtureLoad !== ${JSON.stringify(previous)}`);
     if (!gates.includes('read_local_data')) await wait("document.querySelector('.calendar-button')?.disabled === false");
   };
   const click = async selector => {
@@ -375,6 +381,7 @@ try {
     for (const surface of ['tasks', 'memos', 'settings']) for (const fail of [false, true]) {
       await reloadInteraction([], { calendarOpen: surface === 'memos' }); await delay(600);
       if (surface === 'settings') await click('.settings-button');
+      if (surface === 'settings') await wait("document.querySelector('.settings-list') && document.querySelector('.task-item')");
       const before = await data();
       // Focus-triggered rollover starts synchronously. Dispatching the attempts
       // in this same JS turn covers the gap before React commits a lock render.
@@ -394,7 +401,7 @@ try {
       })()`);
       assert.equal(during.focused, false, `${surface}: synchronous lock left input focusable`);
       await wait("window.interactionCheck.pending('commit_local_data') > 0");
-      assert.equal(await evaluate("document.querySelector('.app').getAttribute('aria-busy')"), 'true');
+      await wait("document.querySelector('.app').getAttribute('aria-busy') === 'true'");
       const field = surface === 'memos' ? '.memo-text' : '.task-item[data-task-id="未完成"] textarea';
       await attemptInput(field, '独占事务期间不能接收');
       assert.equal(await evaluate(`document.activeElement === document.querySelector(${JSON.stringify(field)})`), false);
@@ -433,7 +440,7 @@ try {
       await submitTask();
       await wait("JSON.parse(sessionStorage.getItem('calendar-check-data')).tasks.some(task => task.text.includes('恢复前新内容'))");
       const before = await data();
-      await click('[aria-label="打开历史记录"]');
+      await click('.records-button');
       await wait("document.querySelector('.history-version:not(:disabled)') && document.querySelector('.history-restore:not(:disabled)')");
       // Pick an actual saved version with the original task, rather than
       // asserting anything about the fake IPC/history implementation.
@@ -622,16 +629,25 @@ try {
     await evaluate("document.querySelector('.calendar-button').click()");
     await wait("document.querySelector('.matrix')");
   });
-  await regression('chat preview supports both time modes and saves the selected one', async () => {
-    await reloadInteraction([], { calendarOpen: true });
-    await wait("document.querySelector('.memo-heading-actions .memo-schedule-button')");
-    await evaluate("document.querySelector('.memo-heading-actions .memo-schedule-button').click()");
+  await regression('chat import persists both time modes, skips duplicates and undoes only its latest batch after reload', async () => {
+    const existingEvent = { id: 'existing-agenda', date: '2026-10-19', period: 'evening', text: '原有日程',
+      completed: false, createdAt: '2026-10-16T04:00:00.000Z', updatedAt: '2026-10-16T04:00:00.000Z' };
+    await reloadInteraction([], {}, { agenda: { events: [existingEvent], batches: [], receipts: [] } });
+    const openImport = async () => {
+      await wait("document.querySelector('.import-button')?.disabled === false");
+      await evaluate("document.querySelector('.import-button').click()");
+      await wait("document.querySelector('#chat-source')");
+    };
+    await openImport();
     const modelOutput = JSON.stringify({ events: [{ kind: 'deadline', title: '72 小时期限',
       date: '', preparation: '72 小时内完成。推理：根据聊天日期推算。' }] });
     await evaluate(`sessionStorage.setItem('chat-check-model-output', ${JSON.stringify(modelOutput)})`);
-    await attemptInput('.chat-import-zone textarea', '2026/10/16 09:36 72小时内');
-    await pressEnter();
-    await wait("document.querySelector('.chat-import-preview li > input')?.value === '72 小时内完成'");
+    const extract = async () => {
+      await attemptInput('#chat-source', '2026/10/16 09:36 72小时内');
+      await pressEnter();
+      await wait("document.querySelector('.chat-preview-title input[type=text]')?.value === '72 小时内完成'");
+    };
+    await extract();
     assert.equal(await evaluate("document.querySelector('.chat-time-modes button[aria-pressed=true]').textContent"), '24 小时');
     assert.equal(await evaluate("document.querySelector('.chat-clock-input').value"), '09:36');
     await evaluate("document.querySelector('.chat-clock-input').focus(); document.querySelector('.chat-clock-input').select()");
@@ -651,16 +667,67 @@ try {
       assert.equal(await evaluate("document.querySelector('.chat-import').scrollWidth <= document.querySelector('.chat-import').clientWidth + 1"), true);
     }
     await evaluate("document.querySelector('.chat-preview-actions .chat-primary').click()");
-    await wait("JSON.parse(sessionStorage.getItem('calendar-check-data')).dailyMemoSchedules?.['2026-10-19']?.notes?.['9'] === '09:36 前 72 小时内完成'");
-    await evaluate("document.querySelector('.chat-preview-actions .chat-quiet').click()");
-    await wait("!JSON.parse(sessionStorage.getItem('calendar-check-data')).dailyMemoSchedules?.['2026-10-19']");
-    await attemptInput('.chat-import-zone textarea', '2026/10/16 09:36 72小时内');
-    await pressEnter();
-    await wait("document.querySelector('.chat-clock-input')?.value === '09:36'");
+    const persisted = "JSON.parse(sessionStorage.getItem('calendar-check-data'))";
+    await wait(`${persisted}.agenda.events.length === 2`);
+    const hourly = await data();
+    assert.equal(hourly.agenda.events[1].startTime, '09:36');
+    assert.equal(hourly.agenda.events[1].deadline, true);
+    assert.equal(hourly.dailyMemoSchedules['2026-10-19'].mode, 'hourly');
+    await send('Page.reload');
+    await openImport();
+    await extract();
+    await wait("document.querySelector('.chat-preview-title input[type=checkbox]')?.disabled === true");
+    assert.equal(await evaluate("document.querySelector('.chat-preview-actions .chat-primary').disabled"), true);
+    assert.deepEqual((await data()).agenda, hourly.agenda);
     await evaluate("document.querySelector('.chat-time-modes button').click()");
     await wait("document.querySelector('.chat-preview-fields select')?.value === 'morning'");
+    assert.equal(await evaluate("document.querySelector('.chat-preview-title input[type=checkbox]').disabled"), true,
+      'Changing layout alone must not bypass duplicate detection');
+    await evaluate("document.querySelector('.chat-preview-title input[type=text]').focus(); document.querySelector('.chat-preview-title input[type=text]').select()");
+    await send('Input.insertText', { text: '带纸质材料' });
+    await wait("document.querySelector('.chat-layout-conflict select')");
+    await evaluate(`(() => {
+      const select = document.querySelector('.chat-layout-conflict select');
+      select.value = 'periods';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    })()`);
+    await wait("document.querySelector('.chat-preview-actions .chat-primary')?.disabled === false");
     await evaluate("document.querySelector('.chat-preview-actions .chat-primary').click()");
-    await wait("JSON.parse(sessionStorage.getItem('calendar-check-data')).dailyMemos?.['2026-10-19']?.morning === '72 小时内完成'");
+    await wait(`${persisted}.agenda.events.length === 3`);
+    const periods = await data();
+    assert.equal(periods.agenda.events[2].period, 'morning');
+    assert.equal(periods.agenda.events[2].startTime, '09:36');
+    assert.equal(periods.dailyMemoSchedules['2026-10-19'].mode, 'periods');
+    await send('Page.reload');
+    await wait("document.querySelector('[data-date=\"2026-10-19\"]')");
+    await evaluate("document.querySelector('[data-date=\"2026-10-19\"]').click()");
+    await wait("document.querySelectorAll('.agenda-item').length === 3");
+    await openImport();
+    await evaluate("document.querySelector('.chat-preview-actions .chat-quiet').click()");
+    await wait(`${persisted}.agenda.batches[1]?.undoneAt && ${persisted}.agenda.events.length === 2`);
+    const afterUndo = await data();
+    assert.deepEqual(afterUndo.agenda.events, hourly.agenda.events);
+    assert.deepEqual(afterUndo.dailyMemos, seed.dailyMemos);
+    assert.deepEqual(afterUndo.tasks, seed.tasks);
+    assert.deepEqual(afterUndo.completedTasks, seed.completedTasks);
+  });
+  await regression('Windows reminder IPC failure retries and a persisted receipt prevents repeats on reload', async () => {
+    const event = { id: 'agenda-reminder', date: '2026-10-16', startTime: '13:00', period: 'afternoon',
+      text: '合成提醒', remindMinutes: 60, completed: false, createdAt: '2026-10-16T04:00:00Z', updatedAt: '2026-10-16T04:00:00Z' };
+    await reloadInteraction(['notify_agenda'], {}, { agenda: { events: [event], batches: [], receipts: [] } });
+    await wait("window.interactionCheck.pending('notify_agenda') === 1");
+    await evaluate("window.interactionCheck.release('notify_agenda', true)");
+    await wait("document.body.textContent.includes('日程提醒发送失败')");
+    assert.deepEqual((await data()).agenda.receipts, []);
+    await evaluate("window.dispatchEvent(new Event('focus'))");
+    await wait("JSON.parse(sessionStorage.getItem('calendar-check-data')).agenda.receipts.length === 1");
+    assert.equal(await evaluate('window.interactionCheck.notifications.length'), 2);
+    await evaluate("sessionStorage.removeItem('interaction-check-gates')");
+    await send('Page.reload');
+    await wait("document.querySelector('.calendar-button')?.disabled === false");
+    await evaluate("window.dispatchEvent(new Event('focus'))");
+    assert.equal(await evaluate('window.interactionCheck.notifications.length'), 0);
+    assert.equal((await data()).agenda.receipts.length, 1);
   });
   assert.deepEqual(errors, [], 'Browser exceptions or network failures');
   if (interactionFailures.length) throw new AggregateError(interactionFailures, 'Interaction preservation regressions failed');

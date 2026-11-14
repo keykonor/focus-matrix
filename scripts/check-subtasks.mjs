@@ -177,7 +177,7 @@ try {
   await edit(root + ' .subtask-row:nth-child(3) textarea', '稍后恢复前的内容');
   await click('.save-version-button');
   await wait("JSON.parse(sessionStorage.getItem('calendar-check-data')).tasks[0].subtasks[2].text==='稍后恢复前的内容'");
-  await click('[aria-label="打开历史记录"]');
+  await click('.records-button');
   await wait("document.querySelector('.history-version')");
   await click('.history-version[data-version-id="' + manualId + '"]');
   await wait("document.querySelector('.history-preview .subtasks-preview')");
@@ -230,7 +230,9 @@ try {
   await wait("JSON.parse(sessionStorage.getItem('calendar-check-data')).completedTasks.length===1");
   const archive=await data();
   assert.deepEqual(archive.completedTasks[0].task.subtasks,beforeCloud.tasks[0].subtasks);
-  await click('.completed-button');
+  await click('.records-button');
+  await wait("document.querySelector('.records-tabs button:nth-child(2)')");
+  await click('.records-tabs button:nth-child(2)');
   await wait("document.querySelector('.completed-modal .subtasks-preview')");
   const search='.completed-filters input[type="search"]';
   await evaluate('(() => {const f=document.querySelector(' + JSON.stringify(search) + ');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value").set.call(f,"整理结论");f.dispatchEvent(new Event("input",{bubbles:true}));})()');
