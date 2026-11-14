@@ -10,7 +10,7 @@ Windows 桌面四象限任务便笺，配合每日备忘录、待办历史与已
 [![Release](https://img.shields.io/github/v/release/keykonor/focus-matrix?color=4f7f65)](https://github.com/keykonor/focus-matrix/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-**[下载 Windows x64 安装包](https://github.com/keykonor/focus-matrix/releases/latest/download/FocusMatrix-Windows-x64-setup.exe)**
+**[下载标准版](https://github.com/keykonor/focus-matrix/releases/latest/download/FocusMatrix-Windows-x64-setup.exe)** · **[下载离线版（分卷）](https://github.com/keykonor/focus-matrix/releases/latest)**
 
 [使用指南](docs/usage.md) · [更新日志](CHANGELOG.md) · [开发文档](docs/development.md) · [源码与测试](https://github.com/keykonor/focus-matrix/actions/workflows/checks.yml) · [参与贡献](CONTRIBUTING.md)
 
@@ -39,11 +39,11 @@ Windows 10 / 11 · x64 · 本地功能离线可用
 
 ## 三步开始
 
-1. 从 [Releases](https://github.com/keykonor/focus-matrix/releases) 下载 `FocusMatrix-Windows-x64-setup.exe`。
+1. 从 [Releases](https://github.com/keykonor/focus-matrix/releases) 选标准版或离线版。需要在断网电脑安装并使用 AI 时，按发布页说明下载离线版全部分卷。
 2. 如已安装旧版，先从托盘菜单选择 **退出**，再运行安装器。
 3. 点击象限空白处或 **添加任务**，记下第一件事。Enter 新建下一项，Shift+Enter 换行。
 
-安装器按当前用户安装；缺少 WebView2 时需要联网下载运行时。默认窗口 720 × 480，最小 520 × 360。
+安装器按当前用户安装。标准版缺少 WebView2 时会联网获取，聊天识别可在「导入信息 → 配置本机识别」按需部署。离线版带 WebView2 与 Qwen3.5 4B，安装完成便可提取。默认窗口 720 × 480，最小 520 × 360。
 右上角 **× 默认隐藏到托盘**，真正退出请使用托盘菜单。
 
 **安装包目前未签名。** 请从本仓库 Releases 下载，并核对同页 `SHA256SUMS.txt`；

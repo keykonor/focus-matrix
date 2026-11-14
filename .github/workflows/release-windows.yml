@@ -15,7 +15,7 @@ on:
       tag:
         description: Release tag matching the desktop version
         type: string
-        default: v0.2.0
+        default: v0.4.0
 
 permissions:
   contents: read
@@ -27,13 +27,13 @@ concurrency:
 jobs:
   windows:
     runs-on: windows-2022
-    timeout-minutes: 60
+    timeout-minutes: 90
     permissions:
       actions: read
       contents: read
     env:
       CARGO_TERM_COLOR: always
-      RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || inputs.tag || 'v0.2.0' }}
+      RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || inputs.tag || 'v0.4.0' }}
       RELEASE_PUBLISH: ${{ inputs.publish }}
       REQUIRE_SIGNPATH: ${{ vars.WINDOWS_SIGNING_ENABLED == 'true' && ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || (github.event_name == 'workflow_dispatch' && inputs.publish)) }}
     steps:
@@ -75,7 +75,9 @@ jobs:
           ./scripts/validate-release-ref.ps1
       - name: Release ref regression tests
         shell: pwsh
-        run: ./scripts/test-release-ref.ps1
+        run: |
+          ./scripts/test-release-ref.ps1
+          ./scripts/test-local-ai-package.ps1
       - name: Frontend tests
         shell: pwsh
         run: |
@@ -159,8 +161,25 @@ jobs:
           $installer = $env:UNSIGNED_INSTALLER
           if ($requireSignPath) { $installer = 'outputs/signpath-signed/FocusMatrix-Windows-x64-setup.exe' }
           ./scripts/package-windows-release.ps1 -Installer $installer -RequireSignPath:$requireSignPath
-          $asset = Get-Item -LiteralPath outputs/release/FocusMatrix-Windows-x64-setup.exe
-          ./scripts/check-windows-installer.ps1 -Installer $asset.FullName
+      - name: Verify the standard installer on ordinary builds
+        if: "!startsWith(github.ref, 'refs/tags/v') && !inputs.publish"
+        shell: pwsh
+        run: ./scripts/check-windows-installer.ps1 -Installer (Resolve-Path outputs/release/FocusMatrix-Windows-x64-setup.exe)
+      - name: Package and verify the disconnected installer and its model
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.publish
+        shell: pwsh
+        run: |
+          npm run tauri bundle -- --bundles nsis --ci --config src-tauri/tauri.offline.conf.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $setup = @(Get-ChildItem src-tauri/target/release/bundle/nsis/*-setup.exe)
+          if ($setup.Count -ne 1) { throw 'Expected one offline installer.' }
+          ./scripts/check-windows-installer.ps1 -Installer (Resolve-Path outputs/release/FocusMatrix-Windows-x64-setup.exe) -OfflineInstaller $setup[0].FullName
+          ./scripts/package-offline.ps1 -Installer $setup[0].FullName -OutputDirectory outputs/release -WorkDirectory $env:RUNNER_TEMP
+          ./scripts/check-offline-release.ps1 -ReleaseDirectory outputs/release
+          $lines = foreach ($asset in Get-ChildItem outputs/release -File | Where-Object Name -ne 'SHA256SUMS.txt') {
+            (Get-FileHash -LiteralPath $asset.FullName).Hash.ToLowerInvariant() + '  ' + $asset.Name
+          }
+          [IO.File]::WriteAllText((Join-Path (Resolve-Path outputs/release) 'SHA256SUMS.txt'), ($lines -join "`n") + "`n")
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: windows-x64-release
@@ -207,6 +226,10 @@ jobs:
           fi
           cp "docs/releases/$RELEASE_TAG.md" release-notes.md
           printf '\n[Code signing policy](https://github.com/%s/blob/main/docs/code-signing.md)\n' "$GITHUB_REPOSITORY" >> release-notes.md
-          gh release create "$RELEASE_TAG" release/* \
+          gh release create "$RELEASE_TAG" \
             --verify-tag --target "$GITHUB_SHA" --title "Focus Matrix ${RELEASE_TAG#v}" \
-            --notes-file release-notes.md --latest
+            --notes-file release-notes.md --draft
+          for asset in release/*; do
+            gh release upload "$RELEASE_TAG" "$asset"
+          done
+          gh release edit "$RELEASE_TAG" --draft=false --latest

@@ -1,9 +1,13 @@
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::{path::PathBuf, sync::Mutex, time::Duration};
+use std::{sync::Mutex, time::Duration};
+#[cfg(windows)]
+use std::{path::PathBuf, process::Child};
 
 const DEFAULT_OLLAMA: &str = "http://127.0.0.1:11434";
 const FOCUS_OLLAMA: &str = "http://127.0.0.1:11435";
+#[cfg(windows)]
+static MANAGED_OLLAMA: Mutex<Option<(u16, Child)>> = Mutex::new(None);
 const MODEL: &str = "qwen3.5:4b-q4_K_M";
 const PROMPT: &str = include_str!("chat_extraction_prompt.txt");
 static EXTRACTION: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
@@ -20,26 +24,54 @@ struct ChatMessage {
 }
 
 #[cfg(windows)]
-async fn ollama_endpoint(client: &reqwest::Client) -> Result<&'static str, String> {
+async fn ollama_endpoint(client: &reqwest::Client) -> Result<String, String> {
     use std::{io::ErrorKind, os::windows::process::CommandExt, process::{Command, Stdio}};
 
     let Some(local) = std::env::var_os("LOCALAPPDATA").map(PathBuf::from) else {
-        return Ok(DEFAULT_OLLAMA);
+        return Ok(DEFAULT_OLLAMA.into());
     };
+    let lock: Value = serde_json::from_str(include_str!("../../scripts/local-ai-lock.json"))
+        .map_err(|_| "本机识别版本配置无效。")?;
+    let runtime_version = lock["runtimeVersion"].as_str().ok_or("本机识别版本配置无效。")?;
+    let offline = local.join("FocusMatrixLocalAI");
+    let bundled = offline.join(format!("ollama-{runtime_version}")).join("ollama.exe");
+    let manifest = offline.join("models/manifests/registry.ollama.ai/library/qwen3.5/4b-q4_K_M");
+    if bundled.is_file() && manifest.is_file() {
+        let port = {
+            let mut managed = MANAGED_OLLAMA.lock().map_err(|_| "本机识别状态不可用。")?;
+            let running_port = if let Some((port, child)) = managed.as_mut() {
+                child.try_wait().map_err(|_| "无法检查离线识别进程。")?.is_none().then_some(*port)
+            } else { None };
+            if let Some(port) = running_port { port } else {
+                let address = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+                    .and_then(|socket| socket.local_addr()).map_err(|_| "无法分配本机识别端口。")?;
+                let child = Command::new(&bundled).arg("serve")
+                    .env("OLLAMA_MODELS", offline.join("models"))
+                    .env("OLLAMA_HOST", address.to_string()).env("OLLAMA_NO_CLOUD", "1")
+                    .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null())
+                    .creation_flags(0x08000000).spawn().map_err(|_| "无法启动离线 Ollama，请重新运行离线安装。")?;
+                *managed = Some((address.port(), child));
+                address.port()
+            }
+        };
+        let endpoint = format!("http://127.0.0.1:{port}");
+        for _ in 0..50 {
+            if available(client, &endpoint).await { return Ok(endpoint); }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+        stop_managed_ollama();
+        return Err("离线识别启动失败，请检查离线运行时与模型安装。".into());
+    }
     let config = local.join("FocusMatrixOllama").join("model-directory.txt");
     let models = match std::fs::read_to_string(config) {
         Ok(path) => PathBuf::from(path.trim()),
-        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(DEFAULT_OLLAMA),
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(DEFAULT_OLLAMA.into()),
         Err(_) => return Err("无法读取本地模型目录配置。".into()),
     };
     if !models.is_absolute() || !models.is_dir() {
         return Err("Focus Matrix 本地模型目录不可用，请检查模型所在磁盘。".into());
     }
-    let available = || async {
-        client.get(format!("{FOCUS_OLLAMA}/api/version"))
-            .timeout(Duration::from_secs(1)).send().await.is_ok_and(|response| response.status().is_success())
-    };
-    if available().await { return Ok(FOCUS_OLLAMA); }
+    if available(client, FOCUS_OLLAMA).await { return Ok(FOCUS_OLLAMA.into()); }
     let exe = local.join("Programs").join("Ollama").join("ollama.exe");
     let mut process = Command::new(exe).arg("serve")
         .env("OLLAMA_MODELS", models)
@@ -49,13 +81,41 @@ async fn ollama_endpoint(client: &reqwest::Client) -> Result<&'static str, Strin
         .creation_flags(0x08000000)
         .spawn().map_err(|_| "无法启动本地 Ollama，请检查是否已安装。")?;
     for _ in 0..24 {
-        if available().await { return Ok(FOCUS_OLLAMA); }
+        if available(client, FOCUS_OLLAMA).await { return Ok(FOCUS_OLLAMA.into()); }
         if process.try_wait().ok().flatten().is_some() { break; }
         tokio::time::sleep(Duration::from_millis(250)).await;
     }
     let _ = process.kill();
     let _ = process.wait();
     Err("本地 Ollama 启动失败，请检查模型目录和端口 11435。".into())
+}
+
+#[cfg(windows)]
+pub fn stop_managed_ollama() {
+    if let Ok(mut managed) = MANAGED_OLLAMA.lock() {
+        if let Some((_, mut child)) = managed.take() { let _ = child.kill(); let _ = child.wait(); }
+    }
+}
+
+#[cfg(windows)]
+async fn available(client: &reqwest::Client, endpoint: &str) -> bool {
+    client.get(format!("{endpoint}/api/version")).timeout(Duration::from_secs(1))
+        .send().await.is_ok_and(|response| response.status().is_success())
+}
+
+#[tauri::command]
+pub async fn install_local_chat_model() -> Result<(), String> {
+    // This always targets the user's local, already installed Ollama service.
+    let client = reqwest::Client::builder().no_proxy().redirect(reqwest::redirect::Policy::none())
+        .connect_timeout(Duration::from_secs(2)).timeout(Duration::from_secs(3600))
+        .build().map_err(|_| "无法创建本机模型连接。")?;
+    let response = client.post(format!("{DEFAULT_OLLAMA}/api/pull"))
+        .json(&json!({"model": MODEL, "stream": false})).send().await
+        .map_err(|_| "下载未完成。请启动 Ollama，确认网络和磁盘空间后重试。")?;
+    if !response.status().is_success() { return Err("Ollama 下载失败，请检查网络和磁盘空间后重试。".into()); }
+    let result: Value = response.json().await.map_err(|_| "无法读取 Ollama 的下载结果。")?;
+    if result["status"] != "success" { return Err("Ollama 未确认模型下载成功，请重试。".into()); }
+    Ok(())
 }
 
 #[tauri::command]

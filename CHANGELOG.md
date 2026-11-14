@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.0
+
+- Add structured schedules, repeat rules, reminders and linked quadrant tasks.
+- Preview, deduplicate and undo chat imports. Keep both calendar layouts.
+- Consolidate records and sync controls, and group theme and density settings.
+- Offer a standard installer and a disconnected installation kit with Qwen3.5 4B.
+
 ## 0.3.0
 
 - Add one-level subtasks, task documents and images, date-memo attachments

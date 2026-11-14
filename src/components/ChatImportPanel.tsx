@@ -50,10 +50,11 @@ export function ChatImportPanel({ date, memos, schedules, existingFingerprints, 
   const [sourceSnapshot, setSourceSnapshot] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
+  const [downloadingModel, setDownloadingModel] = useState(false);
   const [preview, setPreview] = useState<PreviewRow[]>([]);
   const [layoutChoices, setLayoutChoices] = useState<ChatLayouts>({});
   const [images, setImages] = useState<File[]>([]);
-  const canExtract = !busy && Boolean(reference) && (text.trim().length > 0 || images.length > 0);
+  const canExtract = !busy && !downloadingModel && Boolean(reference) && (text.trim().length > 0 || images.length > 0);
   const imageQueue = useRef<File[]>([]);
   const zone = useRef<HTMLElement>(null);
   const picker = useRef<HTMLInputElement>(null);
@@ -62,6 +63,19 @@ export function ChatImportPanel({ date, memos, schedules, existingFingerprints, 
   const cancelWait = useRef<Promise<unknown> | undefined>(undefined);
   const mounted = useRef(false);
   const receiveDrop = useRef<(drop: NativeDrop) => void>(() => {});
+  const downloadModel = async () => {
+    if (processing.current || downloadingModel) return;
+    setDownloadingModel(true);
+    setMessage('正在下载本机模型（约 3.3 GB），请保持 Ollama 和网络连接。');
+    try {
+      await invoke('install_local_chat_model');
+      if (mounted.current) setMessage('模型已就绪，可以提取并预览。');
+    } catch (error) {
+      if (mounted.current) setMessage(String(error));
+    } finally {
+      if (mounted.current) setDownloadingModel(false);
+    }
+  };
   const updateImages = (files: File[]) => {
     imageQueue.current = files;
     setImages(files);
@@ -90,7 +104,7 @@ export function ChatImportPanel({ date, memos, schedules, existingFingerprints, 
   };
 
   const extract = async () => {
-    if (processing.current) return;
+    if (processing.current || downloadingModel) return;
     const requestId = crypto.getRandomValues(new Uint32Array(4)).join('-');
     const request: Extraction = { requestId, controller: new AbortController(), native: false };
     active.current = request;
@@ -227,6 +241,12 @@ export function ChatImportPanel({ date, memos, schedules, existingFingerprints, 
         <span className="chat-local">本机提取</span>
       </div>
       <p className="chat-help" id="chat-source-help">粘贴聊天文字，或拖入、粘贴最多 {chatImageLimits.count} 张截图。按 Enter 提取，Shift+Enter 换行。</p>
+      <details className="chat-help">
+        <summary>配置本机识别</summary>
+        <p>已安装离线版可直接提取。首次使用标准版，请先安装并启动 Ollama，再按需下载模型。</p>
+        <button type="button" className="chat-quiet" onClick={() => void invoke('open_task_link', { url: 'https://ollama.com/download/windows' }).catch(error => setMessage(String(error)))}>打开 Ollama 下载页</button>
+        <button type="button" className="chat-quiet" disabled={busy || downloadingModel} onClick={() => void downloadModel()}>{downloadingModel ? '模型下载中…' : '下载 Qwen3.5 4B'}</button>
+      </details>
       <textarea id="chat-source" aria-label="聊天文字" aria-describedby="chat-source-help" placeholder="例如：下周一下午两点开会，周五前交材料。" rows={4} maxLength={12000} value={text}
         disabled={busy} onChange={event => setText(event.target.value)}
         onKeyDown={event => {

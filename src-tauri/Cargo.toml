@@ -1,6 +1,6 @@
 [package]
 name = "focus-matrix"
-version = "0.3.0"
+version = "0.4.0"
 description = "A calm Eisenhower matrix for Windows"
 authors = ["Focus Matrix"]
 edition = "2021"

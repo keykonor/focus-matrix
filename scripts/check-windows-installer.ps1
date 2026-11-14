@@ -1,4 +1,4 @@
-param([Parameter(Mandatory=$true)][string]$Installer)
+param([Parameter(Mandatory=$true)][string]$Installer, [string]$OfflineInstaller)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 # This check must never populate or uninstall the maintainer's real installation.
@@ -132,4 +132,10 @@ if (Test-Path -LiteralPath (Join-Path $install 'focus-matrix.exe')) { throw 'Uni
 Assert-Preserved
 Run-Setup
 Assert-Preserved
+if ($OfflineInstaller) {
+    $Installer = $OfflineInstaller
+    Run-Setup
+    Assert-Preserved
+    Write-Output 'PASS: switching from standard to offline setup preserves fixture bytes.'
+}
 Write-Output 'PASS: silent fresh install, running-app rejection without killing or replacing files, reinstall, verified backups, uninstall and reinstall-after-uninstall preserve all fixture bytes. The application was not launched and no real user data was used.'

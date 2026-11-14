@@ -1,0 +1,8 @@
+{
+  "runtimeVersion": "0.40.16",
+  "runtimeSha256": "50fcf5ad54277f2fa5d173ebfc93bcb017adbc0c9ef2314daabc96ca9e6aa64e",
+  "manifestSha256": "d8b0f5e9760cd1682034f292d7ef72ec46f432149be0df7574bf2d6e92e38c04",
+  "model": "4b-q4_K_M",
+  "weights": "a9d0a3e1d8c91732a3812becd31f8d4a8ff57414903f226306069f0437e2ac50",
+  "projector": "e56a899b1540860385465756dd308c84417410b94dbc1c380adffd20a921ca60"
+}

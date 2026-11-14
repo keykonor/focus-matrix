@@ -1,0 +1,22 @@
+Focus Matrix for Windows x64 - Offline installation
+
+1. On a connected computer, download all five Offline assets and SHA256SUMS.txt
+   from the same Focus Matrix Release. Keep them together in a folder.
+2. Copy the folder to the target computer. Extract ONLY the Focus Matrix
+   Windows offline ZIP into a subfolder. Leave the Ollama ZIP and three model
+   assets in the folder next to that subfolder, with their original filenames.
+3. Close Focus Matrix from its tray menu. Double-click install-offline.cmd
+   inside the extracted subfolder. No network is needed on the target computer.
+4. Open Focus Matrix and choose Import. The app starts the local runtime when
+   you extract tasks. The first request can take longer while the model loads.
+
+Use Windows 10 22H2 or Windows 11 (x64). Keep at least 9 GB free on the system
+drive for the offline components and installation. The weights remain in
+%LOCALAPPDATA%\FocusMatrixLocalAI when you update the app. Both editions use
+the same task data and should be installed to the same app directory.
+
+The installer uses SHA-256 to check the runtime and model. Verify the entire
+download set against SHA256SUMS.txt before running the installation.
+This bundle includes Ollama and Apache-licensed Qwen3.5 weights. Their licenses
+are included. Online sharing and phone synchronization require a separate
+cloud service and credentials.
